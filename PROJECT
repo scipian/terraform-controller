@@ -1,0 +1,3 @@
+version: "1"
+domain: scipian.io
+repo: github.com/scipian/terraform-controller
