@@ -8,19 +8,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-const (
-	backendTemplate = `
-terraform {
-	backend "%s" {
-		bucket         = "%s"
-		key            = "%s"
-		region         = "%s"
-		dynamodb_table = "%s"
-	}
-}
-	`
-)
-
 // CreateConfigMap creates a Kubernetes Configmap with variables that the Terraform Job will reference
 // +kubebuilder:rbac:groups=core,resources=configmaps;secrets;pods;pods/volumes,verbs=get;list;watch;create;update;patch;delete
 func CreateConfigMap(name string, namespace string, ws *terraformv1alpha1.Workspace) *corev1.ConfigMap {
@@ -30,6 +17,12 @@ func CreateConfigMap(name string, namespace string, ws *terraformv1alpha1.Worksp
 	configMapData := make(map[string]string)
 	configMapData["backend-tf"] = backendTF
 	configMapData["terraform-tfvars"] = tfVars
+
+	if ws.Spec.RemoteState != "" {
+		// This workspace is referencing state from a Network workspace
+		remoteState := formatRemoteState(ws)
+		configMapData["remote-state"] = remoteState
+	}
 
 	return &corev1.ConfigMap{
 		TypeMeta: metav1.TypeMeta{
@@ -52,7 +45,7 @@ func formatBackendTerraform(ws *terraformv1alpha1.Workspace) string {
 	region := ws.Spec.Backend.Region
 	dbTable := ws.Spec.Backend.DynamoDBTable
 
-	backend := fmt.Sprintf(backendTemplate, backendType, bucket, key, region, dbTable)
+	backend := fmt.Sprintf(BackendTemplate, backendType, bucket, key, region, dbTable)
 	return backend
 }
 
@@ -64,4 +57,9 @@ func formatTerraformVars(ws *terraformv1alpha1.Workspace) string {
 		terraformVariables = terraformVariables + variable + "\n"
 	}
 	return terraformVariables
+}
+
+func formatRemoteState(ws *terraformv1alpha1.Workspace) string {
+	remoteState := fmt.Sprintf(RemoteState, ws.Spec.RemoteState, ws.Name, ws.Namespace)
+	return remoteState
 }

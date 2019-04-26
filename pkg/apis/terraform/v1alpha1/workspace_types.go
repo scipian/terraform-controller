@@ -27,12 +27,14 @@ import (
 type WorkspaceSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
-	Image      string            `json:"image"`
-	Secret     string            `json:"secret"`
-	WorkingDir string            `json:"workingDir"`
-	Backend    WorkspaceBackend  `json:"backend"`
-	EnvVars    map[string]string `json:"envVars,omitempty"`
-	TfVars     map[string]string `json:"tfVars,omitempty"`
+	Image      string           `json:"image"`
+	Secret     string           `json:"secret"`
+	WorkingDir string           `json:"workingDir"`
+	Backend    WorkspaceBackend `json:"backend"`
+	// TODO(NL): Think about renaming this
+	RemoteState string            `json:"remoteState"`
+	EnvVars     map[string]string `json:"envVars,omitempty"`
+	TfVars      map[string]string `json:"tfVars,omitempty"`
 }
 
 // WorkspaceBackend defines the desired state of a backend for a Workspace
