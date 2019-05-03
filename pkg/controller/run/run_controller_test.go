@@ -49,15 +49,9 @@ var ws = terraformv1alpha1.Workspace{
 		Image:      "quay.io/fake-image",
 		Secret:     "fake-secret",
 		WorkingDir: "/fake",
+		Region:     "us-west-2",
 		EnvVars:    map[string]string{"FOO": "foo"},
 		TfVars:     map[string]string{"BAR": "bar"},
-		Backend: terraformv1alpha1.WorkspaceBackend{
-			Type:          "test-type",
-			Bucket:        "test-bucket",
-			Key:           "test-key",
-			Region:        "test-region",
-			DynamoDBTable: "test-table",
-		},
 	},
 }
 

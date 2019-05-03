@@ -1,6 +1,7 @@
 package terraform
 
 import (
+	"os"
 	"testing"
 
 	"github.com/onsi/gomega"
@@ -11,14 +12,12 @@ import (
 
 // Set up desired Workspace
 var testWorkspaceBackend = terraformv1alpha1.Workspace{
+	ObjectMeta: metav1.ObjectMeta{
+		Name:      "name",
+		Namespace: "namespace",
+	},
 	Spec: terraformv1alpha1.WorkspaceSpec{
-		Backend: terraformv1alpha1.WorkspaceBackend{
-			Type:          "fakeType",
-			Bucket:        "fakeBucket",
-			Key:           "fakeKey",
-			Region:        "fakeRegion",
-			DynamoDBTable: "fakeDBTable",
-		},
+		Region: "us-west-2",
 		TfVars: map[string]string{"foo": "bar"},
 	},
 }
@@ -26,17 +25,19 @@ var testWorkspaceBackend = terraformv1alpha1.Workspace{
 // Set up desired backend blob
 var testBackend = `
 terraform {
-	backend "fakeType" {
-		bucket         = "fakeBucket"
-		key            = "fakeKey"
-		region         = "fakeRegion"
-		dynamodb_table = "fakeDBTable"
+	backend "s3" {
+		bucket               = "test-backend"
+		key                  = "terraform.tfstate"
+		region               = "us-west-2"
+		dynamodb_table       = "test-locking"
+		workspace_key_prefix = "namespace"
 	}
 }
 	`
 
 // Set up desired tfVars blob
-var testTfVars = `foo = "bar"
+var testTfVars = `network_workspace_namespace = "namespace"
+foo = "bar"
 `
 
 // Set up desired ConfigMap
@@ -57,6 +58,14 @@ func TestCreateConfigMap(t *testing.T) {
 	g := gomega.NewGomegaWithT(t)
 	ws := &testWorkspaceBackend
 	cm := &testConfigMap
+
+	tempBucket := os.Getenv("SCIPIAN_STATE_BUCKET")
+	tempLocking := os.Getenv("SCIPIAN_STATE_LOCKING")
+	os.Setenv("SCIPIAN_STATE_BUCKET", "test-backend")
+	os.Setenv("SCIPIAN_STATE_LOCKING", "test-locking")
+
+	defer os.Setenv("SCIPIAN_STATE_BUCKET", tempBucket)
+	defer os.Setenv("SCIPIAN_STATE_LOCKING", tempLocking)
 
 	// Test formatBackendTerraform function
 	g.Expect(formatBackendTerraform(ws)).Should(gomega.Equal(testBackend))

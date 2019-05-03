@@ -22,25 +22,11 @@ spec:
           type: object
         spec:
           properties:
-            backend:
-              properties:
-                bucket:
-                  type: string
-                key:
-                  type: string
-                region:
-                  type: string
-                type:
-                  type: string
-              required:
-              - type
-              - bucket
-              - key
-              - region
-              type: object
             envVars:
               type: object
             image:
+              type: string
+            region:
               type: string
             secret:
               type: string
@@ -52,7 +38,7 @@ spec:
           - image
           - secret
           - workingDir
-          - backend
+          - region
           type: object
         status:
           type: object

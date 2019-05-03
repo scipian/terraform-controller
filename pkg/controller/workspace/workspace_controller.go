@@ -109,7 +109,6 @@ type ReconcileWorkspace struct {
 // Automatically generate RBAC rules to allow the Controller to read and write resources
 // +kubebuilder:rbac:groups=terraform.scipian.io,resources=workspaces,verbs=get;list;watch;create;update;patch;delete
 func (r *ReconcileWorkspace) Reconcile(request reconcile.Request) (reconcile.Result, error) {
-	var terraformCmd string
 	workspaceFinalizerName := "workspace.finalizer.scipian.io"
 	workspace := &terraformv1alpha1.Workspace{}
 
@@ -128,7 +127,6 @@ func (r *ReconcileWorkspace) Reconcile(request reconcile.Request) (reconcile.Res
 		// The object is not being deleted, so if it does not have our finalizer,
 		// then lets add the finalizer and update the object.
 		if !containsString(workspace.ObjectMeta.Finalizers, workspaceFinalizerName) {
-			terraformCmd = tfWorkspaceNew
 
 			workspace.ObjectMeta.Finalizers = append(workspace.ObjectMeta.Finalizers, workspaceFinalizerName)
 			if err := r.Update(context.Background(), workspace); err != nil {
@@ -136,7 +134,7 @@ func (r *ReconcileWorkspace) Reconcile(request reconcile.Request) (reconcile.Res
 			}
 		}
 
-		if err := r.startJob(workspace.Name, terraformCmd, workspace); err != nil {
+		if err := r.startJob(workspace.Name, tfWorkspaceNew, workspace); err != nil {
 			return reconcile.Result{}, err
 		}
 
@@ -144,10 +142,9 @@ func (r *ReconcileWorkspace) Reconcile(request reconcile.Request) (reconcile.Res
 		// The object is being deleted
 		log.Printf("Deleting the external dependencies")
 		jobName := fmt.Sprintf("%s-delete", workspace.Name)
-		terraformCmd = tfWorkspaceDelete
 
 		if containsString(workspace.ObjectMeta.Finalizers, workspaceFinalizerName) {
-			if err := r.startJob(jobName, terraformCmd, workspace); err != nil {
+			if err := r.startJob(jobName, tfWorkspaceDelete, workspace); err != nil {
 				// TODO(NL): There is an error here around label and label selectors
 				// not being present or not matching.
 				// GitHub issue reference: https://github.com/scipian/terraform-controller/issues/8#issue-434520188

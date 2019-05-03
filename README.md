@@ -20,6 +20,11 @@ Running Locally
 To run the project locally for developing:
 
 1. dep ensure
-2. make
-3. make install
-4. make run (must have kubeconfig for our cluster in .kube/config)
+1. using [Direnv][direnv], set up your `.envrc` file with `SCIPIAN_STATE_BUCKET`
+and `SCIPIAN_STATE_LOCKING` pointing to your s3 bucket and DynamoDB table
+respectively.
+1. make
+1. make install
+1. make run (must have kubeconfig for our cluster in .kube/config)
+
+[direnv]: https://direnv.net/

@@ -2,23 +2,11 @@ package terraform
 
 import (
 	"fmt"
+	"os"
 
 	terraformv1alpha1 "github.com/scipian/terraform-controller/pkg/apis/terraform/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-)
-
-const (
-	backendTemplate = `
-terraform {
-	backend "%s" {
-		bucket         = "%s"
-		key            = "%s"
-		region         = "%s"
-		dynamodb_table = "%s"
-	}
-}
-	`
 )
 
 // CreateConfigMap creates a Kubernetes Configmap with variables that the Terraform Job will reference
@@ -46,18 +34,27 @@ func CreateConfigMap(name string, namespace string, ws *terraformv1alpha1.Worksp
 }
 
 func formatBackendTerraform(ws *terraformv1alpha1.Workspace) string {
-	backendType := ws.Spec.Backend.Type
-	bucket := ws.Spec.Backend.Bucket
-	key := ws.Spec.Backend.Key
-	region := ws.Spec.Backend.Region
-	dbTable := ws.Spec.Backend.DynamoDBTable
+	var region string
+	scipianBucket := os.Getenv("SCIPIAN_STATE_BUCKET")
+	scipianStateLocking := os.Getenv("SCIPIAN_STATE_LOCKING")
 
-	backend := fmt.Sprintf(backendTemplate, backendType, bucket, key, region, dbTable)
+	if scipianStateLocking == "" {
+		scipianStateLocking = fmt.Sprintf("%s-locking", scipianBucket)
+	}
+
+	if ws.Spec.Region == "cn-north-1" || ws.Spec.Region == "cn-northwest-1" {
+		region = "cn-north-1"
+	} else {
+		region = "us-west-2"
+	}
+	backend := fmt.Sprintf(BackendTemplate, scipianBucket, region, scipianStateLocking, ws.Namespace)
 	return backend
 }
 
 func formatTerraformVars(ws *terraformv1alpha1.Workspace) string {
 	var terraformVariables, variable string
+	var namespaceVariable = fmt.Sprintf(`network_workspace_namespace = "%s"`, ws.Namespace)
+	terraformVariables = terraformVariables + namespaceVariable + "\n"
 
 	for k, v := range ws.Spec.TfVars {
 		variable = fmt.Sprintf(`%s = "%s"`, k, v)

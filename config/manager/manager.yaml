@@ -5,6 +5,15 @@ metadata:
     controller-tools.k8s.io: "1.0"
   name: system
 ---
+kind: ConfigMap 
+apiVersion: v1 
+metadata:
+  name: scipian-config
+  namespace: system
+data:
+  state-bucket: cnqr-scipian-backend
+  state-locking: cnqr-scipian-backend-locking
+---
 apiVersion: v1
 kind: Service
 metadata:
@@ -45,6 +54,17 @@ spec:
         - /root/manager
         image: controller:latest
         name: manager
+        env:
+          - name: SCIPIAN_STATE_BUCKET
+            valueFrom:
+              configMapKeyRef:
+                name: scipian-config
+                key: state-bucket
+          - name: SCIPIAN_STATE_LOCKING
+            valueFrom:
+              configMapKeyRef:
+                name: scipian-config
+                key: state-locking
         resources:
           limits:
             cpu: 100m

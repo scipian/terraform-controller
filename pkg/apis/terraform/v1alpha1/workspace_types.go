@@ -30,18 +30,9 @@ type WorkspaceSpec struct {
 	Image      string            `json:"image"`
 	Secret     string            `json:"secret"`
 	WorkingDir string            `json:"workingDir"`
-	Backend    WorkspaceBackend  `json:"backend"`
+	Region     string            `json:"region"`
 	EnvVars    map[string]string `json:"envVars,omitempty"`
 	TfVars     map[string]string `json:"tfVars,omitempty"`
-}
-
-// WorkspaceBackend defines the desired state of a backend for a Workspace
-type WorkspaceBackend struct {
-	Type          string `json:"type"`
-	Bucket        string `json:"bucket"`
-	Key           string `json:"key"`
-	Region        string `json:"region"`
-	DynamoDBTable string `json:"dynamodb_table"`
 }
 
 // WorkspaceStatus defines the observed state of Workspace
