@@ -12,8 +12,11 @@ import (
 // CreateConfigMap creates a Kubernetes Configmap with variables that the Terraform Job will reference
 // +kubebuilder:rbac:groups=core,resources=configmaps;secrets;pods;pods/volumes,verbs=get;list;watch;create;update;patch;delete
 func CreateConfigMap(name string, namespace string, ws *terraformv1alpha1.Workspace) *corev1.ConfigMap {
-	backendTF := formatBackendTerraform(ws)
-	tfVars := formatTerraformVars(ws)
+	scipianBucket := os.Getenv("SCIPIAN_STATE_BUCKET")
+	scipianStateLocking := os.Getenv("SCIPIAN_STATE_LOCKING")
+
+	backendTF := formatBackendTerraform(scipianBucket, scipianStateLocking, ws)
+	tfVars := formatTerraformVars(scipianBucket, ws)
 
 	configMapData := make(map[string]string)
 	configMapData["backend-tf"] = backendTF
@@ -33,13 +36,11 @@ func CreateConfigMap(name string, namespace string, ws *terraformv1alpha1.Worksp
 	}
 }
 
-func formatBackendTerraform(ws *terraformv1alpha1.Workspace) string {
+func formatBackendTerraform(bucket string, stateLocking string, ws *terraformv1alpha1.Workspace) string {
 	var region string
-	scipianBucket := os.Getenv("SCIPIAN_STATE_BUCKET")
-	scipianStateLocking := os.Getenv("SCIPIAN_STATE_LOCKING")
 
-	if scipianStateLocking == "" {
-		scipianStateLocking = fmt.Sprintf("%s-locking", scipianBucket)
+	if stateLocking == "" {
+		stateLocking = fmt.Sprintf("%s-locking", bucket)
 	}
 
 	if ws.Spec.Region == "cn-north-1" || ws.Spec.Region == "cn-northwest-1" {
@@ -47,14 +48,16 @@ func formatBackendTerraform(ws *terraformv1alpha1.Workspace) string {
 	} else {
 		region = "us-west-2"
 	}
-	backend := fmt.Sprintf(BackendTemplate, scipianBucket, region, scipianStateLocking, ws.Namespace)
+	backend := fmt.Sprintf(BackendTemplate, bucket, region, stateLocking, ws.Namespace)
 	return backend
 }
 
-func formatTerraformVars(ws *terraformv1alpha1.Workspace) string {
+func formatTerraformVars(bucket string, ws *terraformv1alpha1.Workspace) string {
 	var terraformVariables, variable string
 	var namespaceVariable = fmt.Sprintf(`network_workspace_namespace = "%s"`, ws.Namespace)
+	var stateBucket = fmt.Sprintf(`state_bucket_name = "%s"`, bucket)
 	terraformVariables = terraformVariables + namespaceVariable + "\n"
+	terraformVariables = terraformVariables + stateBucket + "\n"
 
 	for k, v := range ws.Spec.TfVars {
 		variable = fmt.Sprintf(`%s = "%s"`, k, v)
