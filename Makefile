@@ -1,6 +1,6 @@
 
 # Image URL to use all building/pushing image targets
-IMG ?= quay.io/scipian/terraform-controller:v0.0.1
+IMG ?= quay.io/scipian/terraform-controller:v0.0.2
 
 all: test manager
 
