@@ -27,12 +27,14 @@ import (
 type WorkspaceSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
-	Image      string            `json:"image"`
-	Secret     string            `json:"secret"`
-	WorkingDir string            `json:"workingDir"`
-	Region     string            `json:"region"`
-	EnvVars    map[string]string `json:"envVars,omitempty"`
-	TfVars     map[string]string `json:"tfVars,omitempty"`
+	Image         string            `json:"image"`
+	Secret        string            `json:"secret"`
+	WorkingDir    string            `json:"workingDir"`
+	Bucket        string            `json:"bucket"`
+	DynamoDBTable string            `json:"dynamodbTable"`
+	Region        string            `json:"region"`
+	EnvVars       map[string]string `json:"envVars,omitempty"`
+	TfVars        map[string]string `json:"tfVars,omitempty"`
 }
 
 // WorkspaceStatus defines the observed state of Workspace

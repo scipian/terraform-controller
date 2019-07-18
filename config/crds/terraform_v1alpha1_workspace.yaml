@@ -22,6 +22,10 @@ spec:
           type: object
         spec:
           properties:
+            bucket:
+              type: string
+            dynamodbTable:
+              type: string
             envVars:
               type: object
             image:
@@ -38,6 +42,8 @@ spec:
           - image
           - secret
           - workingDir
+          - bucket
+          - dynamodbTable
           - region
           type: object
         status:

@@ -17,8 +17,10 @@ var testWorkspaceBackend = terraformv1alpha1.Workspace{
 		Namespace: "namespace",
 	},
 	Spec: terraformv1alpha1.WorkspaceSpec{
-		Region: "us-west-2",
-		TfVars: map[string]string{"foo": "bar"},
+		Region:        "us-west-2",
+		Bucket:        "test-backend",
+		DynamoDBTable: "test-locking",
+		TfVars:        map[string]string{"foo": "bar"},
 	},
 }
 
@@ -69,12 +71,12 @@ func TestCreateConfigMap(t *testing.T) {
 	defer os.Setenv("SCIPIAN_STATE_LOCKING", tempLocking)
 
 	// Test formatBackendTerraform function
-	g.Expect(formatBackendTerraform("test-backend", "test-locking", ws)).Should(gomega.Equal(testBackend))
-	g.Expect(formatBackendTerraform("test-backend", "test-locking", ws)).NotTo(gomega.BeEmpty())
+	g.Expect(formatBackendTerraform(ws)).Should(gomega.Equal(testBackend))
+	g.Expect(formatBackendTerraform(ws)).NotTo(gomega.BeEmpty())
 
 	// Test formatTerraformVars function
-	g.Expect(formatTerraformVars("test-backend", ws)).Should(gomega.Equal(testTfVars))
-	g.Expect(formatTerraformVars("test-backend", ws)).NotTo(gomega.BeEmpty())
+	g.Expect(formatTerraformVars(ws)).Should(gomega.Equal(testTfVars))
+	g.Expect(formatTerraformVars(ws)).NotTo(gomega.BeEmpty())
 
 	// Test CreatConfigMap function
 	configMap := CreateConfigMap("foo", "bar", ws)
