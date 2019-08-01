@@ -31,6 +31,8 @@ terraform {
 		region               = "us-west-2"
 		dynamodb_table       = "test-locking"
 		workspace_key_prefix = "namespace"
+		access_key           = "test-key"
+		secret_key           = "test-secret"
 	}
 }
 	`
@@ -69,14 +71,14 @@ func TestCreateConfigMap(t *testing.T) {
 	defer os.Setenv("SCIPIAN_STATE_LOCKING", tempLocking)
 
 	// Test formatBackendTerraform function
-	g.Expect(formatBackendTerraform("test-backend", "test-locking", ws)).Should(gomega.Equal(testBackend))
-	g.Expect(formatBackendTerraform("test-backend", "test-locking", ws)).NotTo(gomega.BeEmpty())
+	g.Expect(formatBackendTerraform("test-backend", "test-locking", "test-key", "test-secret", ws)).Should(gomega.Equal(testBackend))
+	g.Expect(formatBackendTerraform("test-backend", "test-locking", "test-key", "test-secret", ws)).NotTo(gomega.BeEmpty())
 
 	// Test formatTerraformVars function
 	g.Expect(formatTerraformVars("test-backend", ws)).Should(gomega.Equal(testTfVars))
 	g.Expect(formatTerraformVars("test-backend", ws)).NotTo(gomega.BeEmpty())
 
 	// Test CreatConfigMap function
-	configMap := CreateConfigMap("foo", "bar", ws)
+	configMap := CreateConfigMap("foo", "bar", "test-key", "test-secret", ws)
 	g.Expect(configMap).Should(gomega.Equal(cm))
 }

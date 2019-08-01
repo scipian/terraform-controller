@@ -65,10 +65,19 @@ var r = terraformv1alpha1.Run{
 	},
 }
 
+var s = corev1.Secret{
+	ObjectMeta: metav1.ObjectMeta{
+		Name:      "scipian-aws-iam-creds",
+		Namespace: "scipian",
+	},
+	StringData: map[string]string{"access-key": "test-key", "secret-key": "test-secret"},
+}
+
 func TestReconcile(t *testing.T) {
 	g := gomega.NewGomegaWithT(t)
 	workspace := &ws
 	run := &r
+	secret := &s
 
 	// Setup the Manager and Controller.  Wrap the Controller Reconcile function so it writes each request to a
 	// channel when it is finished.
@@ -85,7 +94,12 @@ func TestReconcile(t *testing.T) {
 	g.Expect(err).NotTo(gomega.HaveOccurred())
 	defer c.Delete(context.TODO(), workspace)
 
-	// Create the Run object and expect Cnfig map and job to be Created
+	// Create Secret object for Run to reference
+	err = c.Create(context.TODO(), secret)
+	g.Expect(err).NotTo(gomega.HaveOccurred())
+	defer c.Delete(context.TODO(), secret)
+
+	// Create the Run object and expect Config map and job to be Created
 	err = c.Create(context.TODO(), run)
 	g.Expect(err).NotTo(gomega.HaveOccurred())
 	defer c.Delete(context.TODO(), run)

@@ -11,6 +11,8 @@ terraform {
 		region               = "%s"
 		dynamodb_table       = "%s"
 		workspace_key_prefix = "%s"
+		access_key           = "%s"
+		secret_key           = "%s"
 	}
 }
 	`

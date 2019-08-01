@@ -92,9 +92,18 @@ var j = batchv1.Job{
 	},
 }
 
+var s = corev1.Secret{
+	ObjectMeta: metav1.ObjectMeta{
+		Name:      "scipian-aws-iam-creds",
+		Namespace: "scipian",
+	},
+	StringData: map[string]string{"access-key": "test-key", "secret-key": "test-secret"},
+}
+
 func TestReconcile(t *testing.T) {
 	g := gomega.NewGomegaWithT(t)
 	workspace := &ws
+	secret := &s
 
 	// Setup the Manager and Controller.  Wrap the Controller Reconcile function so it writes each request to a
 	// channel when it is finished.
@@ -105,6 +114,11 @@ func TestReconcile(t *testing.T) {
 	recFn, requests := SetupTestReconcile(newReconciler(mgr))
 	g.Expect(add(mgr, recFn)).NotTo(gomega.HaveOccurred())
 	defer close(StartTestManager(mgr, g))
+
+	// Create Secret object for Run to reference
+	err = c.Create(context.TODO(), secret)
+	g.Expect(err).NotTo(gomega.HaveOccurred())
+	defer c.Delete(context.TODO(), secret)
 
 	var createWorkspace = func(t *testing.T) {
 		// Create the Workspace object and expect a ConfigMap and Job to be created

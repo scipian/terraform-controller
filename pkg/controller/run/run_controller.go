@@ -39,8 +39,10 @@ import (
 )
 
 const (
-	tfPlan    = "cp /opt/meta/* %s && terraform init -force-copy && terraform workspace select %s && terraform plan -input=false -out=plan.bin && terraform apply -input=false plan.bin"
-	tfDestroy = "cp /opt/meta/* %s && terraform init -force-copy && terraform workspace select %s && terraform destroy -auto-approve"
+	tfPlan               = "cp /opt/meta/* %s && terraform init -force-copy && terraform workspace select %s && terraform plan -input=false -out=plan.bin && terraform apply -input=false plan.bin"
+	tfDestroy            = "cp /opt/meta/* %s && terraform init -force-copy && terraform workspace select %s && terraform destroy -auto-approve"
+	scipianIAMSecretName = "scipian-aws-iam-creds"
+	scipianNamespace     = "scipian"
 )
 
 var (
@@ -118,6 +120,7 @@ func (r *ReconcileRun) Reconcile(request reconcile.Request) (reconcile.Result, e
 
 	run := &terraformv1alpha1.Run{}
 	workspace := &terraformv1alpha1.Workspace{}
+	secret := &corev1.Secret{}
 
 	err = r.Get(context.TODO(), request.NamespacedName, run)
 	if err != nil {
@@ -147,7 +150,15 @@ func (r *ReconcileRun) Reconcile(request reconcile.Request) (reconcile.Result, e
 		terraformCmd = tfPlan
 	}
 
-	configMap := terraform.CreateConfigMap(run.Name, run.Namespace, workspace)
+	scipianIAMSecret, err := r.getSecret(scipianIAMSecretName, scipianNamespace, secret)
+	if err != nil {
+		return reconcile.Result{}, err
+	}
+
+	accessKey := scipianIAMSecret.StringData["access-key"]
+	secretKey := scipianIAMSecret.StringData["secret-key"]
+
+	configMap := terraform.CreateConfigMap(run.Name, run.Namespace, accessKey, secretKey, workspace)
 	runJob := terraform.StartJob(run.Name, run.Namespace, terraformCmd, workspace)
 
 	if err := r.setControllerReference(run, configMap); err != nil {
@@ -215,4 +226,12 @@ func (r *ReconcileRun) updateObject(name string, namespace string, actualObjectF
 	}
 
 	return nil
+}
+
+func (r *ReconcileRun) getSecret(name string, namespace string, secretObject *corev1.Secret) (corev1.Secret, error) {
+	err := r.Get(context.TODO(), types.NamespacedName{Name: name, Namespace: namespace}, secretObject)
+	if err != nil {
+		return *secretObject, err
+	}
+	return *secretObject, nil
 }

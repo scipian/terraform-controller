@@ -41,8 +41,10 @@ import (
 )
 
 const (
-	tfWorkspaceNew    = "cp /opt/meta/* %s && terraform init -force-copy && terraform workspace new %s"
-	tfWorkspaceDelete = "cp /opt/meta/* %s && terraform init -force-copy && terraform workspace delete -force %s"
+	tfWorkspaceNew       = "cp /opt/meta/* %s && terraform init -force-copy && terraform workspace new %s"
+	tfWorkspaceDelete    = "cp /opt/meta/* %s && terraform init -force-copy && terraform workspace delete -force %s"
+	scipianIAMSecretName = "scipian-aws-iam-creds"
+	scipianNamespace     = "scipian"
 )
 
 /**
@@ -165,7 +167,19 @@ func (r *ReconcileWorkspace) Reconcile(request reconcile.Request) (reconcile.Res
 }
 
 func (r *ReconcileWorkspace) startJob(jobName string, terraformCmd string, workspace *terraformv1alpha1.Workspace) error {
-	configMap := terraform.CreateConfigMap(jobName, workspace.Namespace, workspace)
+	foundWorkspaceJob := &batchv1.Job{}
+	foundConfigMap := &corev1.ConfigMap{}
+	secret := &corev1.Secret{}
+
+	scipianIAMSecret, err := r.getSecret(scipianIAMSecretName, scipianNamespace, secret)
+	if err != nil {
+		return err
+	}
+
+	accessKey := scipianIAMSecret.StringData["access-key"]
+	secretKey := scipianIAMSecret.StringData["secret-key"]
+
+	configMap := terraform.CreateConfigMap(jobName, workspace.Namespace, accessKey, secretKey, workspace)
 	workspaceJob := terraform.StartJob(jobName, workspace.Namespace, terraformCmd, workspace)
 
 	if err := r.setControllerReference(workspace, configMap); err != nil {
@@ -175,9 +189,6 @@ func (r *ReconcileWorkspace) startJob(jobName string, terraformCmd string, works
 	if err := r.setControllerReference(workspace, workspaceJob); err != nil {
 		return err
 	}
-
-	foundWorkspaceJob := &batchv1.Job{}
-	foundConfigMap := &corev1.ConfigMap{}
 
 	// Create ConfigMap and Job
 	if err := r.createObject(configMap.Name, configMap.Namespace, configMap, foundConfigMap, "ConfigMap"); err != nil {
@@ -285,4 +296,12 @@ func (r *ReconcileWorkspace) updateObject(name string, namespace string, actualO
 	}
 
 	return nil
+}
+
+func (r *ReconcileWorkspace) getSecret(name string, namespace string, secretObject *corev1.Secret) (corev1.Secret, error) {
+	err := r.Get(context.TODO(), types.NamespacedName{Name: name, Namespace: namespace}, secretObject)
+	if err != nil {
+		return *secretObject, err
+	}
+	return *secretObject, nil
 }

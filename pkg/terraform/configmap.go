@@ -11,11 +11,11 @@ import (
 
 // CreateConfigMap creates a Kubernetes Configmap with variables that the Terraform Job will reference
 // +kubebuilder:rbac:groups=core,resources=configmaps;secrets;pods;pods/volumes,verbs=get;list;watch;create;update;patch;delete
-func CreateConfigMap(name string, namespace string, ws *terraformv1alpha1.Workspace) *corev1.ConfigMap {
+func CreateConfigMap(name string, namespace string, accessKey string, secretKey string, ws *terraformv1alpha1.Workspace) *corev1.ConfigMap {
 	scipianBucket := os.Getenv("SCIPIAN_STATE_BUCKET")
 	scipianStateLocking := os.Getenv("SCIPIAN_STATE_LOCKING")
 
-	backendTF := formatBackendTerraform(scipianBucket, scipianStateLocking, ws)
+	backendTF := formatBackendTerraform(scipianBucket, scipianStateLocking, accessKey, secretKey, ws)
 	tfVars := formatTerraformVars(scipianBucket, ws)
 
 	configMapData := make(map[string]string)
@@ -36,7 +36,7 @@ func CreateConfigMap(name string, namespace string, ws *terraformv1alpha1.Worksp
 	}
 }
 
-func formatBackendTerraform(bucket string, stateLocking string, ws *terraformv1alpha1.Workspace) string {
+func formatBackendTerraform(bucket string, stateLocking string, accessKey string, secretKey string, ws *terraformv1alpha1.Workspace) string {
 	var region string
 
 	if stateLocking == "" {
@@ -48,7 +48,7 @@ func formatBackendTerraform(bucket string, stateLocking string, ws *terraformv1a
 	} else {
 		region = "us-west-2"
 	}
-	backend := fmt.Sprintf(BackendTemplate, bucket, region, stateLocking, ws.Namespace)
+	backend := fmt.Sprintf(BackendTemplate, bucket, region, stateLocking, ws.Namespace, accessKey, secretKey)
 	return backend
 }
 
