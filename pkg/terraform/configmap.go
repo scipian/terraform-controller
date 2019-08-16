@@ -15,8 +15,15 @@ func CreateConfigMap(name string, namespace string, accessKey string, secretKey 
 	scipianBucket := os.Getenv("SCIPIAN_STATE_BUCKET")
 	scipianStateLocking := os.Getenv("SCIPIAN_STATE_LOCKING")
 
+	backendVariableMap := map[string]string{
+		"network_workspace_namespace": ws.Namespace,
+		"state_bucket_name":           scipianBucket,
+		"access_key":                  accessKey,
+		"secret_key":                  secretKey,
+	}
+
 	backendTF := formatBackendTerraform(scipianBucket, scipianStateLocking, accessKey, secretKey, ws)
-	tfVars := formatTerraformVars(scipianBucket, ws)
+	tfVars := formatTerraformVars(backendVariableMap, ws)
 
 	configMapData := make(map[string]string)
 	configMapData["backend-tf"] = backendTF
@@ -52,16 +59,19 @@ func formatBackendTerraform(bucket string, stateLocking string, accessKey string
 	return backend
 }
 
-func formatTerraformVars(bucket string, ws *terraformv1alpha1.Workspace) string {
-	var terraformVariables, variable string
-	var namespaceVariable = fmt.Sprintf(`network_workspace_namespace = "%s"`, ws.Namespace)
-	var stateBucket = fmt.Sprintf(`state_bucket_name = "%s"`, bucket)
-	terraformVariables = terraformVariables + namespaceVariable + "\n"
-	terraformVariables = terraformVariables + stateBucket + "\n"
+func formatTerraformVars(variableMap map[string]string, ws *terraformv1alpha1.Workspace) string {
+	var terraformVariables, providedVariable, backendVariable string
 
+	// range over backend variables
+	for k, v := range variableMap {
+		backendVariable = fmt.Sprintf(`%s = "%s"`, k, v)
+		terraformVariables = terraformVariables + backendVariable + "\n"
+	}
+
+	// range over provided variables
 	for k, v := range ws.Spec.TfVars {
-		variable = fmt.Sprintf(`%s = "%s"`, k, v)
-		terraformVariables = terraformVariables + variable + "\n"
+		providedVariable = fmt.Sprintf(`%s = "%s"`, k, v)
+		terraformVariables = terraformVariables + providedVariable + "\n"
 	}
 	return terraformVariables
 }

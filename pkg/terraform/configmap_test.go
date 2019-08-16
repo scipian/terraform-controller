@@ -40,6 +40,8 @@ terraform {
 // Set up desired tfVars blob
 var testTfVars = `network_workspace_namespace = "namespace"
 state_bucket_name = "test-backend"
+access_key = "test-key"
+secret_key = "test-secret"
 foo = "bar"
 `
 
@@ -62,6 +64,13 @@ func TestCreateConfigMap(t *testing.T) {
 	ws := &testWorkspaceBackend
 	cm := &testConfigMap
 
+	variableMap := map[string]string{
+		"network_workspace_namespace": "namespace",
+		"state_bucket_name":           "test-backend",
+		"access_key":                  "test-key",
+		"secret_key":                  "test-secret",
+	}
+
 	tempBucket := os.Getenv("SCIPIAN_STATE_BUCKET")
 	tempLocking := os.Getenv("SCIPIAN_STATE_LOCKING")
 	os.Setenv("SCIPIAN_STATE_BUCKET", "test-backend")
@@ -75,8 +84,8 @@ func TestCreateConfigMap(t *testing.T) {
 	g.Expect(formatBackendTerraform("test-backend", "test-locking", "test-key", "test-secret", ws)).NotTo(gomega.BeEmpty())
 
 	// Test formatTerraformVars function
-	g.Expect(formatTerraformVars("test-backend", ws)).Should(gomega.Equal(testTfVars))
-	g.Expect(formatTerraformVars("test-backend", ws)).NotTo(gomega.BeEmpty())
+	g.Expect(formatTerraformVars(variableMap, ws)).Should(gomega.Equal(testTfVars))
+	g.Expect(formatTerraformVars(variableMap, ws)).NotTo(gomega.BeEmpty())
 
 	// Test CreatConfigMap function
 	configMap := CreateConfigMap("foo", "bar", "test-key", "test-secret", ws)
