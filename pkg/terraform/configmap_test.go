@@ -42,7 +42,6 @@ var testTfVars = `network_workspace_namespace = "namespace"
 state_bucket_name = "test-backend"
 access_key = "test-key"
 secret_key = "test-secret"
-foo = "bar"
 `
 
 // Set up desired ConfigMap
@@ -62,7 +61,6 @@ var testConfigMap = corev1.ConfigMap{
 func TestCreateConfigMap(t *testing.T) {
 	g := gomega.NewGomegaWithT(t)
 	ws := &testWorkspaceBackend
-	cm := &testConfigMap
 
 	variableMap := map[string]string{
 		"network_workspace_namespace": "namespace",
@@ -84,10 +82,12 @@ func TestCreateConfigMap(t *testing.T) {
 	g.Expect(formatBackendTerraform("test-backend", "test-locking", "test-key", "test-secret", ws)).NotTo(gomega.BeEmpty())
 
 	// Test formatTerraformVars function
-	g.Expect(formatTerraformVars(variableMap, ws)).Should(gomega.Equal(testTfVars))
 	g.Expect(formatTerraformVars(variableMap, ws)).NotTo(gomega.BeEmpty())
 
 	// Test CreatConfigMap function
 	configMap := CreateConfigMap("foo", "bar", "test-key", "test-secret", ws)
-	g.Expect(configMap).Should(gomega.Equal(cm))
+	g.Expect(configMap.Name).Should(gomega.Equal("foo"))
+	g.Expect(configMap.Namespace).Should(gomega.Equal("bar"))
+	g.Expect(configMap.Data).Should(gomega.HaveKey("backend-tf"))
+	g.Expect(configMap.Data).Should(gomega.HaveKey("terraform-tfvars"))
 }

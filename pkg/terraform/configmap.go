@@ -60,18 +60,18 @@ func formatBackendTerraform(bucket string, stateLocking string, accessKey string
 }
 
 func formatTerraformVars(variableMap map[string]string, ws *terraformv1alpha1.Workspace) string {
-	var terraformVariables, providedVariable, backendVariable string
+	var terraformVariables, providedVariables, backendVariables string
 
 	// range over backend variables
 	for k, v := range variableMap {
-		backendVariable = fmt.Sprintf(`%s = "%s"`, k, v)
-		terraformVariables = terraformVariables + backendVariable + "\n"
+		backendVariables = fmt.Sprintf(`%s = "%s"`, k, v)
+		terraformVariables = terraformVariables + backendVariables + "\n"
 	}
 
 	// range over provided variables
 	for k, v := range ws.Spec.TfVars {
-		providedVariable = fmt.Sprintf(`%s = "%s"`, k, v)
-		terraformVariables = terraformVariables + providedVariable + "\n"
+		providedVariables = fmt.Sprintf(`%s = "%s"`, k, v)
+		terraformVariables = terraformVariables + providedVariables + "\n"
 	}
 	return terraformVariables
 }
