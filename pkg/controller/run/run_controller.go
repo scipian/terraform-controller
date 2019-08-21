@@ -150,13 +150,12 @@ func (r *ReconcileRun) Reconcile(request reconcile.Request) (reconcile.Result, e
 		terraformCmd = tfPlan
 	}
 
-	scipianIAMSecret, err := r.getSecret(scipianIAMSecretName, scipianNamespace, secret)
-	if err != nil {
+	if err := r.getSecret(scipianIAMSecretName, scipianNamespace, secret); err != nil {
 		return reconcile.Result{}, err
 	}
 
-	accessKey := scipianIAMSecret.StringData["access-key"]
-	secretKey := scipianIAMSecret.StringData["secret-key"]
+	accessKey := string(secret.Data["aws_access_key_id"])
+	secretKey := string(secret.Data["aws_secret_access_key"])
 
 	configMap := terraform.CreateConfigMap(run.Name, run.Namespace, accessKey, secretKey, workspace)
 	runJob := terraform.StartJob(run.Name, run.Namespace, terraformCmd, workspace)
@@ -228,10 +227,10 @@ func (r *ReconcileRun) updateObject(name string, namespace string, actualObjectF
 	return nil
 }
 
-func (r *ReconcileRun) getSecret(name string, namespace string, secretObject *corev1.Secret) (corev1.Secret, error) {
+func (r *ReconcileRun) getSecret(name string, namespace string, secretObject *corev1.Secret) error {
 	err := r.Get(context.TODO(), types.NamespacedName{Name: name, Namespace: namespace}, secretObject)
 	if err != nil {
-		return *secretObject, err
+		return err
 	}
-	return *secretObject, nil
+	return nil
 }

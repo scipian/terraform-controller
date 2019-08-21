@@ -171,13 +171,11 @@ func (r *ReconcileWorkspace) startJob(jobName string, terraformCmd string, works
 	foundConfigMap := &corev1.ConfigMap{}
 	secret := &corev1.Secret{}
 
-	scipianIAMSecret, err := r.getSecret(scipianIAMSecretName, scipianNamespace, secret)
-	if err != nil {
+	if err := r.getSecret(scipianIAMSecretName, scipianNamespace, secret); err != nil {
 		return err
 	}
-
-	accessKey := scipianIAMSecret.StringData["access-key"]
-	secretKey := scipianIAMSecret.StringData["secret-key"]
+	accessKey := string(secret.Data["aws_access_key_id"])
+	secretKey := string(secret.Data["aws_secret_access_key"])
 
 	configMap := terraform.CreateConfigMap(jobName, workspace.Namespace, accessKey, secretKey, workspace)
 	workspaceJob := terraform.StartJob(jobName, workspace.Namespace, terraformCmd, workspace)
@@ -298,10 +296,10 @@ func (r *ReconcileWorkspace) updateObject(name string, namespace string, actualO
 	return nil
 }
 
-func (r *ReconcileWorkspace) getSecret(name string, namespace string, secretObject *corev1.Secret) (corev1.Secret, error) {
+func (r *ReconcileWorkspace) getSecret(name string, namespace string, secretObject *corev1.Secret) error {
 	err := r.Get(context.TODO(), types.NamespacedName{Name: name, Namespace: namespace}, secretObject)
 	if err != nil {
-		return *secretObject, err
+		return err
 	}
-	return *secretObject, nil
+	return nil
 }
