@@ -172,6 +172,8 @@ func (r *ReconcileWorkspace) startJob(jobName string, terraformCmd string, works
 	secret := &corev1.Secret{}
 
 	if err := r.getSecret(scipianIAMSecretName, scipianNamespace, secret); err != nil {
+		// Swallowing errors being returned here somewhere up the call stack
+		// fmt.Print(err)
 		return err
 	}
 	accessKey := string(secret.Data["aws_access_key_id"])
