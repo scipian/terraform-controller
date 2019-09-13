@@ -4,19 +4,28 @@ import (
 	"fmt"
 	"os"
 
-	terraformv1alpha1 "github.com/scipian/terraform-controller/pkg/apis/terraform/v1alpha1"
+	terraformv1 "github.com/scipian/terraform-controller/api/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 )
 
 // CreateConfigMap creates a Kubernetes Configmap with variables that the Terraform Job will reference
 // +kubebuilder:rbac:groups=core,resources=configmaps;secrets;pods;pods/volumes,verbs=get;list;watch;create;update;patch;delete
-func CreateConfigMap(name string, namespace string, ws *terraformv1alpha1.Workspace) *corev1.ConfigMap {
+func CreateConfigMap(key types.NamespacedName, accessKey string, secretKey string, ws *terraformv1.Workspace) *corev1.ConfigMap {
 	scipianBucket := os.Getenv("SCIPIAN_STATE_BUCKET")
 	scipianStateLocking := os.Getenv("SCIPIAN_STATE_LOCKING")
+	//TODO(NL): Add error handling here if ENV's are empty
 
-	backendTF := formatBackendTerraform(scipianBucket, scipianStateLocking, ws)
-	tfVars := formatTerraformVars(scipianBucket, ws)
+	backendVariableMap := map[string]string{
+		"network_workspace_namespace": ws.Namespace,
+		"state_bucket_name":           scipianBucket,
+		"access_key":                  accessKey,
+		"secret_key":                  secretKey,
+	}
+
+	backendTF := formatBackendTerraform(scipianBucket, scipianStateLocking, accessKey, secretKey, ws)
+	tfVars := formatTerraformVars(backendVariableMap, ws)
 
 	configMapData := make(map[string]string)
 	configMapData["backend-tf"] = backendTF
@@ -28,15 +37,15 @@ func CreateConfigMap(name string, namespace string, ws *terraformv1alpha1.Worksp
 			APIVersion: "v1",
 		},
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: namespace,
+			Name:      key.Name,
+			Namespace: key.Namespace,
 			Labels:    make(map[string]string),
 		},
 		Data: configMapData,
 	}
 }
 
-func formatBackendTerraform(bucket string, stateLocking string, ws *terraformv1alpha1.Workspace) string {
+func formatBackendTerraform(bucket string, stateLocking string, accessKey string, secretKey string, ws *terraformv1.Workspace) string {
 	var region string
 
 	if stateLocking == "" {
@@ -48,20 +57,23 @@ func formatBackendTerraform(bucket string, stateLocking string, ws *terraformv1a
 	} else {
 		region = "us-west-2"
 	}
-	backend := fmt.Sprintf(BackendTemplate, bucket, region, stateLocking, ws.Namespace)
+	backend := fmt.Sprintf(BackendTemplate, bucket, region, stateLocking, ws.Namespace, accessKey, secretKey)
 	return backend
 }
 
-func formatTerraformVars(bucket string, ws *terraformv1alpha1.Workspace) string {
-	var terraformVariables, variable string
-	var namespaceVariable = fmt.Sprintf(`network_workspace_namespace = "%s"`, ws.Namespace)
-	var stateBucket = fmt.Sprintf(`state_bucket_name = "%s"`, bucket)
-	terraformVariables = terraformVariables + namespaceVariable + "\n"
-	terraformVariables = terraformVariables + stateBucket + "\n"
+func formatTerraformVars(variableMap map[string]string, ws *terraformv1.Workspace) string {
+	var terraformVariables, providedVariables, backendVariables string
 
+	// range over backend variables
+	for k, v := range variableMap {
+		backendVariables = fmt.Sprintf(`%s = "%s"`, k, v)
+		terraformVariables = terraformVariables + backendVariables + "\n"
+	}
+
+	// range over provided variables
 	for k, v := range ws.Spec.TfVars {
-		variable = fmt.Sprintf(`%s = "%s"`, k, v)
-		terraformVariables = terraformVariables + variable + "\n"
+		providedVariables = fmt.Sprintf(`%s = "%s"`, k, v)
+		terraformVariables = terraformVariables + providedVariables + "\n"
 	}
 	return terraformVariables
 }

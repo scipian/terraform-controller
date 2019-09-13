@@ -1,29 +1,31 @@
+/*
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package terraform
 
 import (
-	"os"
-	"testing"
-
-	"github.com/onsi/gomega"
-	terraformv1alpha1 "github.com/scipian/terraform-controller/pkg/apis/terraform/v1alpha1"
-	corev1 "k8s.io/api/core/v1"
+	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/gomega"
+	terraformv1 "github.com/scipian/terraform-controller/api/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 )
 
-// Set up desired Workspace
-var testWorkspaceBackend = terraformv1alpha1.Workspace{
-	ObjectMeta: metav1.ObjectMeta{
-		Name:      "name",
-		Namespace: "namespace",
-	},
-	Spec: terraformv1alpha1.WorkspaceSpec{
-		Region: "us-west-2",
-		TfVars: map[string]string{"foo": "bar"},
-	},
-}
+var _ = Describe("Configmap", func() {
 
-// Set up desired backend blob
-var testBackend = `
+	testBackend := `
 terraform {
 	backend "s3" {
 		bucket               = "test-backend"
@@ -31,52 +33,55 @@ terraform {
 		region               = "us-west-2"
 		dynamodb_table       = "test-locking"
 		workspace_key_prefix = "namespace"
+		access_key           = "test-key"
+		secret_key           = "test-secret"
 	}
 }
 	`
 
-// Set up desired tfVars blob
-var testTfVars = `network_workspace_namespace = "namespace"
-state_bucket_name = "test-backend"
-foo = "bar"
-`
+	testWorkspaceBackend := terraformv1.Workspace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "name",
+			Namespace: "namespace",
+		},
+		Spec: terraformv1.WorkspaceSpec{
+			Region: "us-west-2",
+			TfVars: map[string]string{"foo": "bar"},
+		},
+	}
 
-// Set up desired ConfigMap
-var testConfigMap = corev1.ConfigMap{
-	TypeMeta: metav1.TypeMeta{
-		Kind:       "ConfigMap",
-		APIVersion: "v1",
-	},
-	ObjectMeta: metav1.ObjectMeta{
-		Name:      "foo",
-		Namespace: "bar",
-		Labels:    make(map[string]string),
-	},
-	Data: map[string]string{"backend-tf": testBackend, "terraform-tfvars": testTfVars},
-}
-
-func TestCreateConfigMap(t *testing.T) {
-	g := gomega.NewGomegaWithT(t)
 	ws := &testWorkspaceBackend
-	cm := &testConfigMap
 
-	tempBucket := os.Getenv("SCIPIAN_STATE_BUCKET")
-	tempLocking := os.Getenv("SCIPIAN_STATE_LOCKING")
-	os.Setenv("SCIPIAN_STATE_BUCKET", "test-backend")
-	os.Setenv("SCIPIAN_STATE_LOCKING", "test-locking")
+	variableMap := map[string]string{
+		"network_workspace_namespace": "namespace",
+		"state_bucket_name":           "test-backend",
+		"access_key":                  "test-key",
+		"secret_key":                  "test-secret",
+	}
 
-	defer os.Setenv("SCIPIAN_STATE_BUCKET", tempBucket)
-	defer os.Setenv("SCIPIAN_STATE_LOCKING", tempLocking)
+	Context("Format Terraform Backend", func() {
+		It("Should not be empty", func() {
+			Expect(formatBackendTerraform("test-backend", "test-locking", "test-key", "test-secret", ws)).NotTo(BeEmpty())
+		})
+		It("Should match testBackend", func() {
+			Expect(formatBackendTerraform("test-backend", "test-locking", "test-key", "test-secret", ws)).Should(Equal(testBackend))
+		})
+	})
 
-	// Test formatBackendTerraform function
-	g.Expect(formatBackendTerraform("test-backend", "test-locking", ws)).Should(gomega.Equal(testBackend))
-	g.Expect(formatBackendTerraform("test-backend", "test-locking", ws)).NotTo(gomega.BeEmpty())
+	Context("Format Terraform Variables", func() {
+		It("Should not be empty", func() {
+			Expect(formatTerraformVars(variableMap, ws)).NotTo(BeEmpty())
+		})
+	})
 
-	// Test formatTerraformVars function
-	g.Expect(formatTerraformVars("test-backend", ws)).Should(gomega.Equal(testTfVars))
-	g.Expect(formatTerraformVars("test-backend", ws)).NotTo(gomega.BeEmpty())
-
-	// Test CreatConfigMap function
-	configMap := CreateConfigMap("foo", "bar", ws)
-	g.Expect(configMap).Should(gomega.Equal(cm))
-}
+	Context("Create configmap", func() {
+		It("Should contain expected values", func() {
+			key := types.NamespacedName{Namespace: "bar", Name: "foo"}
+			configMap := CreateConfigMap(key, "test-key", "test-secret", ws)
+			Expect(configMap.Name).Should(Equal("foo"))
+			Expect(configMap.Namespace).Should(Equal("bar"))
+			Expect(configMap.Data).Should(HaveKey("backend-tf"))
+			Expect(configMap.Data).Should(HaveKey("terraform-tfvars"))
+		})
+	})
+})

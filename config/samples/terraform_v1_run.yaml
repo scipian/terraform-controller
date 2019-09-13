@@ -1,0 +1,7 @@
+apiVersion: terraform.scipian.io/v1
+kind: Run
+metadata:
+  name: run-sample
+spec:
+  # Add fields here
+  foo: bar

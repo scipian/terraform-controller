@@ -1,3 +1,10 @@
-version: "1"
+version: "2"
 domain: scipian.io
 repo: github.com/scipian/terraform-controller
+resources:
+- group: terraform
+  version: v1
+  kind: Workspace
+- group: terraform
+  version: v1
+  kind: Run
