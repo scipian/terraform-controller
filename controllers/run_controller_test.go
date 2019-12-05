@@ -17,8 +17,17 @@ package controllers
 
 import (
 	"context"
+	"fmt"
+	"io"
+	"io/ioutil"
+	"net/http"
+	"net/http/httptest"
+	"os"
 	"time"
 
+	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	terraformv1 "github.com/scipian/terraform-controller/api/v1"
@@ -45,7 +54,7 @@ var _ = Describe("RunController", func() {
 				Name:      "scipian-aws-iam-creds",
 				Namespace: "scipian",
 			},
-			StringData: map[string]string{"access-key": "test-key", "secret-key": "test-secret"},
+			StringData: map[string]string{core.AccessKey: "test-key", core.SecretKey: "test-secret"},
 		}
 
 		ws := terraformv1.Workspace{
@@ -127,23 +136,75 @@ var _ = Describe("RunController", func() {
 
 		err = k8sClient.Delete(ctx, workspace)
 		Expect(err).NotTo(HaveOccurred(), "failed to DELETE workspace")
+
+		filePath := fmt.Sprintf("%s/%s/%s", "foo", "bar", core.TFStateFileName)
+		directoryPath := fmt.Sprintf("%s/%s", "foo", "bar")
+		os.Remove(filePath)
+		os.Remove(directoryPath)
+		os.Remove("./foo")
+
 	})
 
-	Context("Verify resources RunController creates", func() {
-		It("Check if ConfigMap was created", func() {
-			configMap := &corev1.ConfigMap{}
+	Context("RunController functionality", func() {
+		It("Should succesfully reconcile", func() {
+			By("Creating ConfigMap", func() {
+				configMap := &corev1.ConfigMap{}
 
-			Eventually(func() error {
-				return k8sClient.Get(ctx, runKey, configMap)
-			}, timeout, interval).Should(Succeed())
+				Eventually(func() error {
+					return k8sClient.Get(ctx, runKey, configMap)
+				}, timeout, interval).Should(Succeed())
+			})
+
+			By("Creating Job", func() {
+				job := &batchv1.Job{}
+
+				Eventually(func() error {
+					return k8sClient.Get(ctx, runKey, job)
+				}, timeout, interval).Should(Succeed())
+			})
+
+			By("Retreiving TF state", func() {
+				workspace := &terraformv1.Workspace{}
+				s3Bucket := os.Getenv("SCIPIAN_STATE_BUCKET")
+				filePath := fmt.Sprintf("%s/%s/%s", "foo", "bar", core.TFStateFileName)
+				directoryPath := fmt.Sprintf("%s/%s", "foo", "bar")
+
+				Expect(k8sClient.Get(context.Background(), runKey, workspace)).Should(Succeed())
+				//Check if job was created
+				foundRunJob := &batchv1.Job{}
+				err := k8sClient.Get(context.TODO(), runKey, foundRunJob)
+				Expect(err).To(BeNil())
+
+				//Create client and mock aws session
+				client, _ := core.CustomClientWithCertPool()
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					w.WriteHeader(http.StatusOK)
+					io.WriteString(w, "Test data")
+				}))
+
+				sess := session.Must(session.NewSession(&aws.Config{
+					DisableSSL:       aws.Bool(true),
+					Endpoint:         aws.String(server.URL),
+					Region:           aws.String("test-region"),
+					S3ForcePathStyle: aws.Bool(true),
+					HTTPClient:       client,
+				}))
+
+				//Download tfstate
+				downloader := s3manager.NewDownloader(sess)
+				err = core.S3Puller(s3Bucket, filePath, downloader, directoryPath)
+				Expect(err).ToNot(HaveOccurred())
+
+				//Read tfstate file and update workspace
+				jsonFile, err := os.Open(filePath)
+				Expect(err).ToNot(HaveOccurred())
+				defer jsonFile.Close()
+				byteValue, _ := ioutil.ReadAll(jsonFile)
+				state := string(byteValue)
+				workspace.Spec.TfState = state
+				Expect(k8sClient.Update(context.Background(), workspace)).Should(Succeed())
+			})
 		})
 
-		It("Check if Job was created", func() {
-			job := &batchv1.Job{}
-
-			Eventually(func() error {
-				return k8sClient.Get(ctx, runKey, job)
-			}, timeout, interval).Should(Succeed())
-		})
 	})
 })

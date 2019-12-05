@@ -17,8 +17,17 @@ package controllers
 
 import (
 	"context"
+	"fmt"
+	"io"
+	"io/ioutil"
+	"net/http"
+	"net/http/httptest"
+	"os"
 	"time"
 
+	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	terraformv1 "github.com/scipian/terraform-controller/api/v1"
@@ -33,7 +42,9 @@ var _ = Describe("WorkspaceController", func() {
 	const timeout = time.Second * 20
 	const interval = time.Second * 1
 
-	var workspaceKey = types.NamespacedName{Namespace: "default", Name: "foo"}
+	var wsName = "test-ws-name"
+	var ns = "default"
+	var workspaceKey = types.NamespacedName{Namespace: ns, Name: wsName}
 	var ctx = context.TODO()
 
 	BeforeEach(func() {
@@ -41,16 +52,16 @@ var _ = Describe("WorkspaceController", func() {
 
 		s := corev1.Secret{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:      "scipian-aws-iam-creds",
-				Namespace: "scipian",
+				Name:      core.ScipianIAMSecretName,
+				Namespace: core.ScipianNamespace,
 			},
-			StringData: map[string]string{"access-key": "test-key", "secret-key": "test-secret"},
+			StringData: map[string]string{core.AccessKey: "test-key", core.SecretKey: "test-secret"},
 		}
 
 		ws := terraformv1.Workspace{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:      "foo",
-				Namespace: "default",
+				Name:      wsName,
+				Namespace: ns,
 			},
 			Spec: terraformv1.WorkspaceSpec{
 				Image:      "quay.io/fake-image",
@@ -64,6 +75,7 @@ var _ = Describe("WorkspaceController", func() {
 
 		secret := &s
 		workspace := &ws
+		job := &batchv1.Job{}
 
 		By("Creating a Secret Object")
 		err = k8sClient.Create(ctx, secret)
@@ -72,14 +84,24 @@ var _ = Describe("WorkspaceController", func() {
 		By("Creating a Workspace Object")
 		err = k8sClient.Create(ctx, workspace)
 		Expect(err).NotTo(HaveOccurred(), "failed to create Foo Workspace")
+
+		Eventually(func() error {
+			return k8sClient.Get(ctx, workspaceKey, job)
+		}, timeout, interval).Should(Succeed())
+
+		// Update Job status to succeeded
+		var succeededJobs int32 = 1
+		job.Status.Succeeded = succeededJobs
+		err = k8sClient.Update(ctx, job)
+		Expect(err).NotTo(HaveOccurred(), "failed to UPDATE job status to SUCCEEDED")
 	})
 
 	AfterEach(func() {
 		var err error
 
 		secretKey := types.NamespacedName{
-			Namespace: "scipian",
-			Name:      "scipian-aws-iam-creds",
+			Namespace: core.ScipianNamespace,
+			Name:      core.ScipianIAMSecretName,
 		}
 
 		// Delete secret
@@ -102,42 +124,95 @@ var _ = Describe("WorkspaceController", func() {
 
 		err = k8sClient.Delete(ctx, workspace)
 		Expect(err).NotTo(HaveOccurred(), "failed to DELETE workspace")
+
+		os.Remove("./foo")
 	})
 
-	Context("Verify resources WorkspaceController creates", func() {
-		It("Check if ConfigMap was created", func() {
-			configMap := &corev1.ConfigMap{}
+	Context("WorkspaceController functionality", func() {
+		It("Should succesfully reconcile", func() {
+			By("Creating a ConfigMap", func() {
+				configMap := &corev1.ConfigMap{}
 
-			Eventually(func() error {
-				return k8sClient.Get(ctx, workspaceKey, configMap)
-			}, timeout, interval).Should(Succeed())
+				Eventually(func() error {
+					return k8sClient.Get(ctx, workspaceKey, configMap)
+				}, timeout, interval).Should(Succeed())
+			})
+
+			By("Creating a job", func() {
+				job := &batchv1.Job{}
+
+				Eventually(func() error {
+					return k8sClient.Get(ctx, workspaceKey, job)
+				}, timeout, interval).Should(Succeed())
+			})
+
+			By("Adding finalizer to Workspace", func() {
+				workspace := &terraformv1.Workspace{}
+
+				Eventually(func() error {
+					return k8sClient.Get(ctx, workspaceKey, workspace)
+				}, timeout, interval).Should(Succeed())
+
+				Eventually(func() []string {
+					k8sClient.Get(ctx, workspaceKey, workspace)
+					return workspace.GetFinalizers()
+				}, timeout, interval).ShouldNot(BeNil())
+
+				Eventually(func() bool {
+					k8sClient.Get(ctx, workspaceKey, workspace)
+					finalizers := workspace.GetFinalizers()
+					return finalizers[0] == core.WorkspaceFinalizerName
+				}, timeout, interval).Should(BeTrue())
+			})
+
+			By("Retrieving TF State", func() {
+				workspace := &terraformv1.Workspace{}
+				foundWorkspaceJob := &batchv1.Job{}
+				s3Bucket := os.Getenv("SCIPIAN_STATE_BUCKET")
+				filePath := fmt.Sprintf("%s/%s/%s", "foo", "bar", core.TFStateFileName)
+				directoryPath := fmt.Sprintf("%s/%s", "foo", "bar")
+
+				Eventually(func() error {
+					return k8sClient.Get(ctx, workspaceKey, workspace)
+				}, timeout, interval).Should(Succeed())
+
+				Eventually(func() error {
+					return k8sClient.Get(ctx, workspaceKey, foundWorkspaceJob)
+				}, timeout, interval).Should(BeNil())
+
+				//Create a test client and mock aws session
+				client, _ := core.CustomClientWithCertPool()
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					w.WriteHeader(http.StatusOK)
+					io.WriteString(w, "Test data")
+				}))
+
+				sess := session.Must(session.NewSession(&aws.Config{
+					DisableSSL:       aws.Bool(true),
+					Endpoint:         aws.String(server.URL),
+					Region:           aws.String("test-region"),
+					S3ForcePathStyle: aws.Bool(true),
+					HTTPClient:       client,
+				}))
+
+				//Download tfstate
+				downloader := s3manager.NewDownloader(sess)
+				err := core.S3Puller(s3Bucket, filePath, downloader, directoryPath)
+				Expect(err).ToNot(HaveOccurred())
+
+				//Read tfstate file and update workspace
+				jsonFile, err := os.Open(filePath)
+				Expect(err).ToNot(HaveOccurred())
+				defer jsonFile.Close()
+				byteValue, _ := ioutil.ReadAll(jsonFile)
+				state := string(byteValue)
+				workspace.Spec.TfState = state
+				Expect(k8sClient.Update(context.Background(), workspace)).Should(Succeed())
+				os.Remove(filePath)
+				os.Remove(directoryPath)
+			})
+
 		})
 
-		It("Check if Job was created", func() {
-			job := &batchv1.Job{}
-
-			Eventually(func() error {
-				return k8sClient.Get(ctx, workspaceKey, job)
-			}, timeout, interval).Should(Succeed())
-		})
-
-		It("Verifying Workspace has a finalizer", func() {
-			workspace := &terraformv1.Workspace{}
-
-			Eventually(func() error {
-				return k8sClient.Get(ctx, workspaceKey, workspace)
-			}, timeout, interval).Should(Succeed())
-
-			Eventually(func() []string {
-				k8sClient.Get(ctx, workspaceKey, workspace)
-				return workspace.GetFinalizers()
-			}, timeout, interval).ShouldNot(BeNil())
-
-			Eventually(func() bool {
-				k8sClient.Get(ctx, workspaceKey, workspace)
-				finalizers := workspace.GetFinalizers()
-				return finalizers[0] == core.WorkspaceFinalizerName
-			}, timeout, interval).Should(BeTrue())
-		})
 	})
 })

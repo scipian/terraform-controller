@@ -19,6 +19,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
 	"time"
 
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -62,6 +63,9 @@ func (r *WorkspaceReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 			}
 		}
 		if err := r.startJob(workspace.Name, core.TFWorkspaceNew, workspace); err != nil {
+			return ctrl.Result{}, err
+		}
+		if err := r.retrieveState(workspace.Name, workspace); err != nil {
 			return ctrl.Result{}, err
 		}
 	} else {
@@ -127,6 +131,7 @@ func (r *WorkspaceReconciler) removeFinalizer(jobName string, finalizerName stri
 	var succeededJobs int32 = 1
 	var failedJobs int32 = 1
 	foundJob := &batchv1.Job{}
+	directoryPath := fmt.Sprintf("%s/%s", workspace.Namespace, workspace.Name)
 
 	for {
 
@@ -140,6 +145,10 @@ func (r *WorkspaceReconciler) removeFinalizer(jobName string, finalizerName stri
 			if err := r.Update(context.Background(), workspace); err != nil {
 				return ignoreNotFound(err)
 			}
+			if err := os.RemoveAll(directoryPath); err != nil {
+				return ignoreNotFound(err)
+			}
+			os.Remove(fmt.Sprintf("./%s", workspace.Namespace))
 			return nil
 		}
 
@@ -147,7 +156,49 @@ func (r *WorkspaceReconciler) removeFinalizer(jobName string, finalizerName stri
 			return fmt.Errorf("job %s failed, cannot destroy workspace", foundJob.Name)
 		}
 
-		log.Printf("Waiting for %s workspace to destory\n", workspace.Name)
+		log.Printf("Waiting for %s workspace to destroy\n", workspace.Name)
+		time.Sleep(5 * time.Second)
+
+		continue
+	}
+}
+
+func (r *WorkspaceReconciler) retrieveState(jobName string, workspace *terraformv1.Workspace) error {
+	var succeededJobs int32 = 1
+	var failedJobs int32 = 1
+	foundJob := &batchv1.Job{}
+	secret := &corev1.Secret{}
+	secretKey := types.NamespacedName{Namespace: core.ScipianNamespace, Name: core.ScipianIAMSecretName}
+	if err := r.GetSecret(secretKey, secret); err != nil {
+		return err
+	}
+	iamAccessKey := string(secret.Data[core.AccessKey])
+	iamSecretKey := string(secret.Data[core.SecretKey])
+
+	for {
+
+		if err := r.Get(context.TODO(), types.NamespacedName{Name: jobName, Namespace: workspace.Namespace}, foundJob); err != nil {
+			return err
+		}
+
+		if foundJob.Status.Succeeded == succeededJobs {
+			log.Printf("Retrieving tfstate")
+			state, err := core.RetrieveState(workspace, iamAccessKey, iamSecretKey)
+			if err != nil {
+				return fmt.Errorf("Error retrieving tfstate - %s", err)
+			}
+			workspace.Spec.TfState = state
+			if err := r.Update(context.Background(), workspace); err != nil {
+				return ignoreNotFound(err)
+			}
+			return nil
+		}
+
+		if foundJob.Status.Failed == failedJobs {
+			return fmt.Errorf("job %s failed", foundJob.Name)
+		}
+
+		log.Printf("Waiting for %s/%s to complete successfully before syncing terraform state\n", foundJob.Namespace, foundJob.Name)
 		time.Sleep(5 * time.Second)
 
 		continue

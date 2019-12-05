@@ -42,6 +42,8 @@ spec:
               type: string
             secret:
               type: string
+            state:
+              type: string
             tfVars:
               additionalProperties:
                 type: string

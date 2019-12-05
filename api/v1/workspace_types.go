@@ -32,6 +32,7 @@ type WorkspaceSpec struct {
 	Region     string            `json:"region"`
 	EnvVars    map[string]string `json:"envVars,omitempty"`
 	TfVars     map[string]string `json:"tfVars,omitempty"`
+	TfState    string            `json:"state,omitempty"`
 }
 
 // WorkspaceStatus defines the observed state of Workspace

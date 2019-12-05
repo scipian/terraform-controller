@@ -47,6 +47,9 @@ const (
 
 	// TFDestroy is the Terraform command for running Terraform destroy on resources
 	TFDestroy = "cp /opt/meta/* %s && terraform init -force-copy && terraform workspace select %s && terraform destroy -auto-approve"
+
+	//TFStateFileName is the name of the terraform state file
+	TFStateFileName = "terraform.tfstate"
 )
 
 // Object is used as a helper interface when passing Kubernetes resources

@@ -17,6 +17,9 @@ package controllers
 
 import (
 	"context"
+	"fmt"
+	"log"
+	"time"
 
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
@@ -71,6 +74,10 @@ func (r *RunReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 		return ctrl.Result{}, err
 	}
 
+	if err := r.retrieveState(run, workspace); err != nil {
+		return ctrl.Result{}, err
+	}
+
 	return ctrl.Result{}, nil
 }
 
@@ -116,4 +123,46 @@ func (r *RunReconciler) startJob(run *terraformv1.Run, terraformCmd string, work
 	}
 
 	return nil
+}
+
+func (r *RunReconciler) retrieveState(run *terraformv1.Run, workspace *terraformv1.Workspace) error {
+	var succeededJobs int32 = 1
+	var failedJobs int32 = 1
+	foundRunJob := &batchv1.Job{}
+	secret := &corev1.Secret{}
+	secretKey := types.NamespacedName{Namespace: core.ScipianNamespace, Name: core.ScipianIAMSecretName}
+	if err := r.GetSecret(secretKey, secret); err != nil {
+		return err
+	}
+	iamAccessKey := string(secret.Data[core.AccessKey])
+	iamSecretKey := string(secret.Data[core.SecretKey])
+
+	for {
+
+		if err := r.Get(context.TODO(), types.NamespacedName{Name: run.Name, Namespace: run.Namespace}, foundRunJob); err != nil {
+			return err
+		}
+
+		if foundRunJob.Status.Succeeded == succeededJobs {
+			log.Printf("Retrieving tfstate")
+			state, err := core.RetrieveState(workspace, iamAccessKey, iamSecretKey)
+			if err != nil {
+				return fmt.Errorf("Error retrieving tfstate - %s", err)
+			}
+			workspace.Spec.TfState = state
+			if err := r.Update(context.Background(), workspace); err != nil {
+				return ignoreNotFound(err)
+			}
+			return nil
+		}
+
+		if foundRunJob.Status.Failed == failedJobs {
+			return fmt.Errorf("job %s failed", foundRunJob.Name)
+		}
+
+		log.Printf("Waiting for %s/%s to complete successfully before syncing terraform state\n", foundRunJob.Namespace, foundRunJob.Name)
+		time.Sleep(5 * time.Second)
+
+		continue
+	}
 }
