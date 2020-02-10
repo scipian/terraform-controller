@@ -9,7 +9,9 @@ spec:
   group: terraform.scipian.io
   names:
     kind: Workspace
+    listKind: WorkspaceList
     plural: workspaces
+    singular: workspace
   scope: ""
   validation:
     openAPIV3Schema:

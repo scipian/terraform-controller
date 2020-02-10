@@ -9,7 +9,9 @@ spec:
   group: terraform.scipian.io
   names:
     kind: Run
+    listKind: RunList
     plural: runs
+    singular: run
   scope: ""
   validation:
     openAPIV3Schema:
