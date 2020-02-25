@@ -1,6 +1,8 @@
 resources:
 - role.yaml
 - role_binding.yaml
+- k8s_types_role.yaml
+- k8s_types_role_binding.yaml
 - leader_election_role.yaml
 - leader_election_role_binding.yaml
 # Comment the following 3 lines if you want to disable
