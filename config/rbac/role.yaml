@@ -21,6 +21,14 @@ rules:
 - apiGroups:
   - terraform.scipian.io
   resources:
+  - runs/list
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - terraform.scipian.io
+  resources:
   - runs/status
   verbs:
   - get
@@ -38,6 +46,14 @@ rules:
   - patch
   - update
   - watch
+- apiGroups:
+  - terraform.scipian.io
+  resources:
+  - workspaces/list
+  verbs:
+  - get
+  - patch
+  - update
 - apiGroups:
   - terraform.scipian.io
   resources:

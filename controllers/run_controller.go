@@ -39,6 +39,7 @@ type RunReconciler struct {
 
 // +kubebuilder:rbac:groups=terraform.scipian.io,resources=runs,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=terraform.scipian.io,resources=runs/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=terraform.scipian.io,resources=runs/list,verbs=get;update;patch
 
 // Reconcile is the reconciler function for Run Custom Resources
 func (r *RunReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {

@@ -50,6 +50,7 @@ type Workspace struct {
 
 	Spec   WorkspaceSpec   `json:"spec,omitempty"`
 	Status WorkspaceStatus `json:"status,omitempty"`
+	List   WorkspaceList   `json:"list,omitempty"`
 }
 
 // +kubebuilder:object:root=true

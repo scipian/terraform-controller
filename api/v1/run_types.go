@@ -45,6 +45,7 @@ type Run struct {
 
 	Spec   RunSpec   `json:"spec,omitempty"`
 	Status RunStatus `json:"status,omitempty"`
+	List   RunList   `json:"list,omitempty"`
 }
 
 // +kubebuilder:object:root=true

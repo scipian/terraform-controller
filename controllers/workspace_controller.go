@@ -40,6 +40,7 @@ type WorkspaceReconciler struct {
 
 // +kubebuilder:rbac:groups=terraform.scipian.io,resources=workspaces,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=terraform.scipian.io,resources=workspaces/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=terraform.scipian.io,resources=workspaces/list,verbs=get;update;patch
 
 // Reconcile is the reconciler function for Workspace Custom Resources
 func (r *WorkspaceReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
