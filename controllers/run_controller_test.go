@@ -36,6 +36,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 var _ = Describe("RunController", func() {
@@ -157,7 +158,18 @@ var _ = Describe("RunController", func() {
 
 			By("Creating Job", func() {
 				job := &batchv1.Job{}
-
+				podList := corev1.PodList{}
+				var err error
+				Eventually(func() error {
+					_ = k8sClient.List(ctx, &podList, client.InNamespace("default"), client.MatchingLabels{"job-name": job.Name})
+					for _, pod := range podList.Items {
+						_ = k8sClient.Get(ctx, types.NamespacedName{Name: pod.Name, Namespace: pod.Namespace}, &pod)
+						pod.Status.Phase = corev1.PodSucceeded
+						err = k8sClient.Update(ctx, &pod)
+						break
+					}
+					return err
+				}, timeout, interval).Should(Succeed())
 				Eventually(func() error {
 					return k8sClient.Get(ctx, runKey, job)
 				}, timeout, interval).Should(Succeed())

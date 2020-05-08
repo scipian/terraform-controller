@@ -34,17 +34,25 @@ type RunSpec struct {
 type RunStatus struct {
 	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
+	Phase        ObjectPhase `json:"phase"`
+	Reason       string      `json:"reason"`
+	JobCompleted bool        `json:"jobCompleted"`
 }
 
 // +kubebuilder:object:root=true
+// +kubebuilder:subresource:status
+// +kubebuilder:printcolumn:name="Status", type=string,JSONPath=`.status.phase`
+// +kubebuilder:printcolumn:name="Reason", type=string,JSONPath=`.status.reason`
+// +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 
 // Run is the Schema for the runs API
 type Run struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   RunSpec   `json:"spec,omitempty"`
-	Status RunStatus `json:"status,omitempty"`
+	Spec    RunSpec   `json:"spec,omitempty"`
+	Status  RunStatus `json:"status,omitempty"`
+	PodName string    `json:"podName,omitempty"`
 }
 
 // +kubebuilder:object:root=true

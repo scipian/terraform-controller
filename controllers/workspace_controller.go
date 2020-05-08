@@ -31,6 +31,7 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 // WorkspaceReconciler reconciles a Workspace object
@@ -40,6 +41,9 @@ type WorkspaceReconciler struct {
 
 // +kubebuilder:rbac:groups=terraform.scipian.io,resources=workspaces,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=terraform.scipian.io,resources=workspaces/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=batch,resources=jobs/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=core,resources=pods/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups="",resources=events,verbs=get;list;watch;create;update;patch;delete
 
 // Reconcile is the reconciler function for Workspace Custom Resources
 func (r *WorkspaceReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
@@ -54,7 +58,13 @@ func (r *WorkspaceReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 		}
 		return ctrl.Result{}, ignoreNotFound(err)
 	}
-
+	// Update workspace status for a new workspace object
+	if workspace.Status.Phase == "" {
+		if err := r.updateStatus(workspace, terraformv1.ObjPending, terraformv1.PendingJobCreation, false); err != nil {
+			return ctrl.Result{}, err
+		}
+		r.Recorder.Event(workspace, "Normal", "Scheduled", "Waiting for job creation")
+	}
 	if workspace.ObjectMeta.DeletionTimestamp.IsZero() {
 		if !core.HasFinalizer(core.WorkspaceFinalizerName, workspace) {
 			core.AddFinalizer(core.WorkspaceFinalizerName, workspace)
@@ -65,29 +75,48 @@ func (r *WorkspaceReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 		if err := r.startJob(workspace.Name, core.TFWorkspaceNew, workspace); err != nil {
 			return ctrl.Result{}, err
 		}
-		if err := r.retrieveState(workspace.Name, workspace); err != nil {
+		if !workspace.Status.JobCompleted {
+			if err := r.checkJobStatus(workspace.Name, workspace, false); err != nil {
+				return ctrl.Result{}, err
+			}
+		}
+		if err := r.retrieveState(workspace); err != nil {
 			return ctrl.Result{}, err
 		}
 	} else {
 		log.Info("Deleting the external dependencies")
 		jobName := fmt.Sprintf("%s-delete", workspace.Name)
+		// In case of successful workspace creation
+		if workspace.Status.Phase == terraformv1.ObjSucceeded {
+			if err := r.updateStatus(workspace, terraformv1.ObjPending, terraformv1.PendingJobCreation, false); err != nil {
+				return ctrl.Result{}, err
+			}
+		}
 		if core.HasFinalizer(core.WorkspaceFinalizerName, workspace) {
 			if err := r.startJob(jobName, core.TFWorkspaceDelete, workspace); err != nil {
 				return ctrl.Result{}, err
 			}
+			if err := r.checkJobStatus(jobName, workspace, true); err != nil {
+				return ctrl.Result{}, err
+			}
 		}
-
-		if err := r.removeFinalizer(jobName, core.WorkspaceFinalizerName, workspace); err != nil {
-			return ctrl.Result{}, err
+		if workspace.Status.JobCompleted {
+			if err := r.workspaceCleanup(core.WorkspaceFinalizerName, workspace); err != nil {
+				return ctrl.Result{}, err
+			}
 		}
 	}
 	return ctrl.Result{}, nil
 }
 
 // SetupWithManager initializes the Workspace controller with the manager
+// Watch job created by workspace controller
+// TODO PTG: Watch pod created by jobs - Tracked in https://github.com/scipian/terraform-controller/issues/37
 func (r *WorkspaceReconciler) SetupWithManager(mgr ctrl.Manager) error {
+
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&terraformv1.Workspace{}).
+		Owns(&batchv1.Job{}).
 		Complete(r)
 }
 
@@ -105,7 +134,8 @@ func (r *WorkspaceReconciler) startJob(jobName string, terraformCmd string, work
 	iamSecretKey := string(secret.Data[core.SecretKey])
 
 	configMap := terraform.CreateConfigMap(workspaceKey, iamAccessKey, iamSecretKey, workspace)
-	workspaceJob := terraform.CreateJob(workspaceKey, terraformCmd, workspace)
+	// Always pull new image for workspace
+	workspaceJob := terraform.CreateJob(workspaceKey, terraformCmd, workspace, true)
 
 	// Set Workspace as owner of configmap and job object
 	if err := r.SetControllerReference(workspace, configMap); err != nil {
@@ -127,47 +157,28 @@ func (r *WorkspaceReconciler) startJob(jobName string, terraformCmd string, work
 	return nil
 }
 
-func (r *WorkspaceReconciler) removeFinalizer(jobName string, finalizerName string, workspace *terraformv1.Workspace) error {
-	var succeededJobs int32 = 1
-	var failedJobs int32 = 1
-	foundJob := &batchv1.Job{}
+// workspaceCleanup removes workspace finalizer and directories created by workspace for storing tfstate
+func (r *WorkspaceReconciler) workspaceCleanup(finalizerName string, workspace *terraformv1.Workspace) error {
 	directoryPath := fmt.Sprintf("%s/%s", workspace.Namespace, workspace.Name)
 
-	for {
+	log.Printf("Deleting finalizer: %s\n", finalizerName)
+	core.RemoveFinalizer(core.WorkspaceFinalizerName, workspace)
 
-		if err := r.Get(context.TODO(), types.NamespacedName{Name: jobName, Namespace: workspace.Namespace}, foundJob); err != nil {
-			return err
-		}
-
-		if foundJob.Status.Succeeded == succeededJobs {
-			log.Printf("Deleting finalizer: %s\n", finalizerName)
-			core.RemoveFinalizer(core.WorkspaceFinalizerName, workspace)
-			if err := r.Update(context.Background(), workspace); err != nil {
-				return ignoreNotFound(err)
-			}
-			if err := os.RemoveAll(directoryPath); err != nil {
-				return ignoreNotFound(err)
-			}
-			os.Remove(fmt.Sprintf("./%s", workspace.Namespace))
-			return nil
-		}
-
-		if foundJob.Status.Failed == failedJobs {
-			return fmt.Errorf("job %s failed, cannot destroy workspace", foundJob.Name)
-		}
-
-		log.Printf("Waiting for %s workspace to destroy\n", workspace.Name)
-		time.Sleep(5 * time.Second)
-
-		continue
+	// Remove directories created by workspace for storing tfstate
+	if err := os.RemoveAll(directoryPath); err != nil {
+		return ignoreNotFound(err)
 	}
+	os.Remove(fmt.Sprintf("./%s", workspace.Namespace))
+
+	if err := r.Update(context.Background(), workspace); err != nil {
+		return ignoreNotFound(err)
+	}
+	return nil
 }
 
-func (r *WorkspaceReconciler) retrieveState(jobName string, workspace *terraformv1.Workspace) error {
-	var succeededJobs int32 = 1
-	var failedJobs int32 = 1
-	foundJob := &batchv1.Job{}
+func (r *WorkspaceReconciler) retrieveState(workspace *terraformv1.Workspace) error {
 	secret := &corev1.Secret{}
+
 	secretKey := types.NamespacedName{Namespace: core.ScipianNamespace, Name: core.ScipianIAMSecretName}
 	if err := r.GetSecret(secretKey, secret); err != nil {
 		return err
@@ -175,32 +186,156 @@ func (r *WorkspaceReconciler) retrieveState(jobName string, workspace *terraform
 	iamAccessKey := string(secret.Data[core.AccessKey])
 	iamSecretKey := string(secret.Data[core.SecretKey])
 
-	for {
+	if err := r.Get(context.TODO(), types.NamespacedName{Name: workspace.Name, Namespace: workspace.Namespace}, workspace); err != nil {
+		return err
+	}
 
-		if err := r.Get(context.TODO(), types.NamespacedName{Name: jobName, Namespace: workspace.Namespace}, foundJob); err != nil {
+	// Retrieve tfstate only if the job completed successfully
+	if workspace.Status.JobCompleted {
+		log.Printf("Retrieving tfstate")
+		state, err := core.RetrieveState(workspace, iamAccessKey, iamSecretKey)
+		if err != nil {
+			_ = r.updateStatus(workspace, terraformv1.ObjIncomplete, terraformv1.ErrRetriveTfstate, true)
+			r.Recorder.Event(workspace, "Warning", string(workspace.Status.Phase), "Error retrieving tfstate")
+			return fmt.Errorf("Error retrieving tfstate - %s", err)
+		}
+		workspace.Spec.TfState = state
+		if err := r.updateStatus(workspace, terraformv1.ObjSucceeded, terraformv1.WorkspaceCreated, true); err != nil {
 			return err
 		}
+		r.Recorder.Event(workspace, "Normal", string(workspace.Status.Phase), "Workspace created successfully")
+		if err := r.Update(context.Background(), workspace); err != nil {
+			return ignoreNotFound(err)
+		}
+		return nil
+	}
+	return nil
+}
 
-		if foundJob.Status.Succeeded == succeededJobs {
-			log.Printf("Retrieving tfstate")
-			state, err := core.RetrieveState(workspace, iamAccessKey, iamSecretKey)
-			if err != nil {
-				return fmt.Errorf("Error retrieving tfstate - %s", err)
+// updateStatus updates workspace status subresource
+func (r *WorkspaceReconciler) updateStatus(workspace *terraformv1.Workspace, phase terraformv1.ObjectPhase, reason string, jobCompleted bool) error {
+	workspace.Status.Phase = phase
+	workspace.Status.Reason = reason
+	workspace.Status.JobCompleted = jobCompleted
+	if err := r.Status().Update(context.Background(), workspace); err != nil {
+		return err
+	}
+	return nil
+}
+
+// checkJobStatus checks the status of the job created by workspace and reconciles workspace accordingly
+func (r *WorkspaceReconciler) checkJobStatus(jobName string, workspace *terraformv1.Workspace, deleteWs bool) error {
+	var workspacePhase terraformv1.ObjectPhase
+	var succeededJobs int32 = 1
+	var failedJobs int32 = 1
+	var activePods int32 = 1
+	foundJob := &batchv1.Job{}
+	podList := &corev1.PodList{}
+	podLabel := map[string]string{"job-name": jobName}
+	if err := r.Get(context.TODO(), types.NamespacedName{Name: jobName, Namespace: workspace.Namespace}, foundJob); err != nil {
+		return ignoreNotFound(err)
+	}
+	switch {
+	case foundJob.Status.Succeeded == succeededJobs:
+		log.Println("Job Succeeded")
+		if deleteWs {
+			workspacePhase = terraformv1.WorkspaceDeleting
+		} else {
+			workspacePhase = terraformv1.ObjRunning
+		}
+		if err := r.updateStatus(workspace, workspacePhase, terraformv1.JobCompleted, true); err != nil {
+			return err
+		}
+		r.Recorder.Event(workspace, "Normal", string(workspace.Status.Phase), "Sucessfully completed job")
+		return nil
+	case foundJob.Status.Failed == failedJobs:
+		log.Println("Job Failed")
+		if err := r.updateStatus(workspace, terraformv1.ObjFailed, terraformv1.JobFailed, false); err != nil {
+			return err
+		}
+		r.Recorder.Event(workspace, "Warning", string(workspace.Status.Phase), "Job failed")
+		return fmt.Errorf("Job failed")
+	case foundJob.Status.Active == activePods:
+		log.Println("Job Running")
+		if err := r.List(context.Background(), podList, client.InNamespace(workspace.Namespace), client.MatchingLabels(podLabel)); err != nil {
+			return err
+		}
+		for _, pod := range podList.Items {
+			_ = r.SetControllerReference(foundJob, &pod)
+			if err := r.Get(context.Background(), types.NamespacedName{Name: pod.Name, Namespace: pod.Namespace}, &pod); err != nil {
+				return err
 			}
-			workspace.Spec.TfState = state
+			if deleteWs {
+				workspacePhase = terraformv1.WorkspaceDeleting
+			} else {
+				workspacePhase = terraformv1.ObjRunning
+			}
+			r.Recorder.Event(workspace, "Normal", string(workspacePhase), fmt.Sprintf("Job Running - pod/%s created", pod.Name))
+			workspace.PodName = pod.Name
 			if err := r.Update(context.Background(), workspace); err != nil {
-				return ignoreNotFound(err)
+				return err
+			}
+			if err := r.checkPodStatus(&pod, workspace, deleteWs); err != nil {
+				return err
+			}
+		}
+	case foundJob.Status.Active == 0:
+		log.Println("Job Pending")
+		if err := r.updateStatus(workspace, terraformv1.ObjPending, "PendingPodCreation", false); err != nil {
+			return err
+		}
+		r.Recorder.Event(workspace, "Normal", string(workspace.Status.Phase), fmt.Sprintf("Job waiting for pod creation - job/%s", foundJob.Name))
+	}
+	return nil
+}
+
+// checkPodStatus checks the status of pod created by job and updates workspace status accordingly
+func (r *WorkspaceReconciler) checkPodStatus(pod *corev1.Pod, workspace *terraformv1.Workspace, deleteWs bool) error {
+	var workspacePhase terraformv1.ObjectPhase
+	podKey := types.NamespacedName{Name: pod.Name, Namespace: pod.Namespace}
+	if deleteWs {
+		workspacePhase = terraformv1.WorkspaceDeleting
+	} else {
+		workspacePhase = terraformv1.ObjRunning
+	}
+	for {
+		if err := r.Get(context.Background(), podKey, pod); err != nil {
+			return err
+		}
+		switch pod.Status.Phase {
+		case corev1.PodPending:
+			for _, containerStatus := range pod.Status.ContainerStatuses {
+				if containerStatus.State.Waiting.Reason == "ErrImagePull" || containerStatus.State.Waiting.Reason == "ImagePullBackOff" {
+					if err := r.updateStatus(workspace, terraformv1.ObjFailed, containerStatus.State.Waiting.Reason, false); err != nil {
+						return err
+					}
+					return fmt.Errorf("error in pulling container image - %s", containerStatus.State.Waiting.Reason)
+				} else {
+					if err := r.updateStatus(workspace, workspacePhase, "PodPending", false); err != nil {
+						return err
+					}
+					break
+				}
+			}
+		case corev1.PodSucceeded:
+			if err := r.updateStatus(workspace, workspacePhase, "PodSucceeded", false); err != nil {
+				return err
 			}
 			return nil
+		case corev1.PodFailed:
+			if err := r.updateStatus(workspace, terraformv1.ObjFailed, "PodFailed", false); err != nil {
+				return err
+			}
+			return nil
+		case corev1.PodRunning:
+			if err := r.updateStatus(workspace, workspacePhase, "PodRunning", false); err != nil {
+				return err
+			}
+			break
+		default:
+			break
 		}
-
-		if foundJob.Status.Failed == failedJobs {
-			return fmt.Errorf("job %s failed", foundJob.Name)
-		}
-
-		log.Printf("Waiting for %s/%s to complete successfully before syncing terraform state\n", foundJob.Namespace, foundJob.Name)
-		time.Sleep(5 * time.Second)
-
-		continue
+		log.Printf("Waiting for %s/%s to complete successfully", pod.Namespace, pod.Name)
+		time.Sleep(3 * time.Second)
 	}
 }

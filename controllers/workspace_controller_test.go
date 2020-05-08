@@ -36,6 +36,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 var _ = Describe("WorkspaceController", func() {
@@ -76,6 +77,7 @@ var _ = Describe("WorkspaceController", func() {
 		secret := &s
 		workspace := &ws
 		job := &batchv1.Job{}
+		podList := corev1.PodList{}
 
 		By("Creating a Secret Object")
 		err = k8sClient.Create(ctx, secret)
@@ -84,6 +86,17 @@ var _ = Describe("WorkspaceController", func() {
 		By("Creating a Workspace Object")
 		err = k8sClient.Create(ctx, workspace)
 		Expect(err).NotTo(HaveOccurred(), "failed to create Foo Workspace")
+
+		Eventually(func() error {
+			_ = k8sClient.List(ctx, &podList, client.InNamespace(workspace.Namespace), client.MatchingLabels{"job-name": job.Name})
+			for _, pod := range podList.Items {
+				_ = k8sClient.Get(ctx, types.NamespacedName{Name: pod.Name, Namespace: pod.Namespace}, &pod)
+				pod.Status.Phase = corev1.PodSucceeded
+				err = k8sClient.Update(ctx, &pod)
+				break
+			}
+			return err
+		}, timeout, interval).Should(Succeed())
 
 		Eventually(func() error {
 			return k8sClient.Get(ctx, workspaceKey, job)
@@ -140,6 +153,18 @@ var _ = Describe("WorkspaceController", func() {
 
 			By("Creating a job", func() {
 				job := &batchv1.Job{}
+				podList := corev1.PodList{}
+				var err error
+				Eventually(func() error {
+					_ = k8sClient.List(ctx, &podList, client.InNamespace(ns), client.MatchingLabels{"job-name": job.Name})
+					for _, pod := range podList.Items {
+						_ = k8sClient.Get(ctx, types.NamespacedName{Name: pod.Name, Namespace: pod.Namespace}, &pod)
+						pod.Status.Phase = corev1.PodSucceeded
+						err = k8sClient.Update(ctx, &pod)
+						break
+					}
+					return err
+				}, timeout, interval).Should(Succeed())
 
 				Eventually(func() error {
 					return k8sClient.Get(ctx, workspaceKey, job)

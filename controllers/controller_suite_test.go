@@ -75,18 +75,20 @@ var _ = BeforeSuite(func(done Done) {
 
 	err = (&WorkspaceReconciler{
 		Reconciler: Reconciler{
-			Client: mgr.GetClient(),
-			Scheme: scheme.Scheme,
-			Log:    logf.Log,
+			Client:   mgr.GetClient(),
+			Scheme:   scheme.Scheme,
+			Log:      logf.Log,
+			Recorder: mgr.GetEventRecorderFor("workspace-controller"),
 		},
 	}).SetupWithManager(mgr)
 	Expect(err).NotTo(HaveOccurred(), "failed to setup Workspace controller")
 
 	err = (&RunReconciler{
 		Reconciler: Reconciler{
-			Client: mgr.GetClient(),
-			Scheme: scheme.Scheme,
-			Log:    logf.Log,
+			Client:   mgr.GetClient(),
+			Scheme:   scheme.Scheme,
+			Log:      logf.Log,
+			Recorder: mgr.GetEventRecorderFor("run-controller"),
 		},
 	}).SetupWithManager(mgr)
 	Expect(err).NotTo(HaveOccurred(), "failed to setup Run controller")

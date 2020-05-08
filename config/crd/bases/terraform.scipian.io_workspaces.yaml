@@ -6,6 +6,16 @@ metadata:
   creationTimestamp: null
   name: workspaces.terraform.scipian.io
 spec:
+  additionalPrinterColumns:
+  - JSONPath: .status.phase
+    name: Status
+    type: string
+  - JSONPath: .status.reason
+    name: Reason
+    type: string
+  - JSONPath: .metadata.creationTimestamp
+    name: Age
+    type: date
   group: terraform.scipian.io
   names:
     kind: Workspace
@@ -13,6 +23,8 @@ spec:
     plural: workspaces
     singular: workspace
   scope: ""
+  subresources:
+    status: {}
   validation:
     openAPIV3Schema:
       description: Workspace is the Schema for the workspaces API
@@ -29,6 +41,8 @@ spec:
           type: string
         metadata:
           type: object
+        podName:
+          type: string
         spec:
           description: WorkspaceSpec defines the desired state of Workspace
           properties:
@@ -60,6 +74,20 @@ spec:
           type: object
         status:
           description: WorkspaceStatus defines the observed state of Workspace
+          properties:
+            jobCompleted:
+              type: boolean
+            phase:
+              description: 'INSERT ADDITIONAL STATUS FIELD - define observed state
+                of cluster Important: Run "make" to regenerate code after modifying
+                this file'
+              type: string
+            reason:
+              type: string
+          required:
+          - jobCompleted
+          - phase
+          - reason
           type: object
       type: object
   version: v1

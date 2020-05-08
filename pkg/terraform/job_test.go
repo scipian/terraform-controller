@@ -137,6 +137,75 @@ var _ = Describe("Job", func() {
 		},
 	}
 
+	// Set up desired Job object
+	desiredJobPullAlways := batchv1.Job{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "Job",
+			APIVersion: "batch/v1",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      jobName,
+			Namespace: jobNamespace,
+			Labels:    make(map[string]string),
+		},
+		Spec: batchv1.JobSpec{
+			BackoffLimit: &backOffLimit,
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:   jobName,
+					Labels: make(map[string]string),
+				},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name:       jobName,
+							Image:      image,
+							Command:    []string{"/bin/ash"},
+							Args:       []string{"-c", desiredTfCommand},
+							WorkingDir: workDir,
+							SecurityContext: &corev1.SecurityContext{
+								Privileged: &falseVal,
+							},
+							ImagePullPolicy: corev1.PullPolicy(corev1.PullAlways),
+							Env:             desiredTestEnvVar,
+							VolumeMounts: []corev1.VolumeMount{
+								{
+									Name:      "config-map",
+									MountPath: "/opt/meta",
+								},
+							},
+						},
+					},
+					RestartPolicy: corev1.RestartPolicyNever,
+					Volumes: []corev1.Volume{
+						{
+							Name: "config-map",
+							VolumeSource: corev1.VolumeSource{
+								ConfigMap: &corev1.ConfigMapVolumeSource{
+									LocalObjectReference: corev1.LocalObjectReference{
+										Name: jobName,
+									},
+									Items: []corev1.KeyToPath{
+										{
+											Key:  "terraform-tfvars",
+											Path: "terraform.tfvars",
+										},
+										{
+											Key:  "backend-tf",
+											Path: "backend.tf",
+										},
+									},
+									Optional: &trueVal,
+								},
+							},
+						},
+					},
+					ImagePullSecrets: []corev1.LocalObjectReference{},
+				},
+			},
+		},
+	}
+
 	Context("Get ENVs", func() {
 		It("Should create ENV object", func() {
 			ws := &desiredTestWorkspaceForJob
@@ -147,9 +216,19 @@ var _ = Describe("Job", func() {
 	})
 	Context("Create job", func() {
 		It("Should create job object", func() {
+			pullAlways := false
 			ws := &desiredTestWorkspaceForJob
 			j := &desiredJobObject
-			job := CreateJob(key, tfCommandTemplate, ws)
+			job := CreateJob(key, tfCommandTemplate, ws, pullAlways)
+			Expect(job).Should(Equal(j))
+		})
+	})
+	Context("Create job - pullAlways", func() {
+		It("Should create job object", func() {
+			pullAlways := true
+			ws := &desiredTestWorkspaceForJob
+			j := &desiredJobPullAlways
+			job := CreateJob(key, tfCommandTemplate, ws, pullAlways)
 			Expect(job).Should(Equal(j))
 		})
 	})

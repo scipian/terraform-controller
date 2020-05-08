@@ -10,8 +10,9 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 )
 
-// CreateConfigMap creates a Kubernetes Configmap with variables that the Terraform Job will reference
 // +kubebuilder:rbac:groups=core,resources=configmaps;secrets;pods;pods/volumes,verbs=get;list;watch;create;update;patch;delete
+
+// CreateConfigMap creates a Kubernetes Configmap with variables that the Terraform Job will reference
 func CreateConfigMap(key types.NamespacedName, accessKey string, secretKey string, ws *terraformv1.Workspace) *corev1.ConfigMap {
 	scipianBucket := os.Getenv("SCIPIAN_STATE_BUCKET")
 	scipianStateLocking := os.Getenv("SCIPIAN_STATE_LOCKING")

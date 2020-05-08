@@ -16,10 +16,17 @@ var (
 	backOffLimit int32
 )
 
-// CreateJob starts a Kubernetes Job that runs Terraform on a given set of files
 // +kubebuilder:rbac:groups=batch,resources=jobs,verbs=get;list;watch;create;update;patch;delete
-func CreateJob(key types.NamespacedName, tfCmd string, ws *terraformv1.Workspace) *batchv1.Job {
+
+// CreateJob starts a Kubernetes Job that runs Terraform on a given set of files
+func CreateJob(key types.NamespacedName, tfCmd string, ws *terraformv1.Workspace, pullAlways bool) *batchv1.Job {
+	var pullPolicy corev1.PullPolicy
 	terraformCommand := fmt.Sprintf(tfCmd, ws.Spec.WorkingDir, ws.Name)
+	if pullAlways {
+		pullPolicy = corev1.PullPolicy(corev1.PullAlways)
+	} else {
+		pullPolicy = corev1.PullPolicy(corev1.PullIfNotPresent)
+	}
 
 	return &batchv1.Job{
 		TypeMeta: metav1.TypeMeta{
@@ -49,7 +56,7 @@ func CreateJob(key types.NamespacedName, tfCmd string, ws *terraformv1.Workspace
 							SecurityContext: &corev1.SecurityContext{
 								Privileged: &falseVal,
 							},
-							ImagePullPolicy: corev1.PullPolicy(corev1.PullIfNotPresent),
+							ImagePullPolicy: pullPolicy,
 							Env:             getEnv(ws),
 							VolumeMounts: []corev1.VolumeMount{
 								{
