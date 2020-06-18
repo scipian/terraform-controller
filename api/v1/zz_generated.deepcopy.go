@@ -54,7 +54,7 @@ func (in *Run) DeepCopyObject() runtime.Object {
 func (in *RunList) DeepCopyInto(out *RunList) {
 	*out = *in
 	out.TypeMeta = in.TypeMeta
-	out.ListMeta = in.ListMeta
+	in.ListMeta.DeepCopyInto(&out.ListMeta)
 	if in.Items != nil {
 		in, out := &in.Items, &out.Items
 		*out = make([]Run, len(*in))
@@ -143,7 +143,7 @@ func (in *Workspace) DeepCopyObject() runtime.Object {
 func (in *WorkspaceList) DeepCopyInto(out *WorkspaceList) {
 	*out = *in
 	out.TypeMeta = in.TypeMeta
-	out.ListMeta = in.ListMeta
+	in.ListMeta.DeepCopyInto(&out.ListMeta)
 	if in.Items != nil {
 		in, out := &in.Items, &out.Items
 		*out = make([]Workspace, len(*in))

@@ -310,12 +310,12 @@ func (r *WorkspaceReconciler) checkPodStatus(pod *corev1.Pod, workspace *terrafo
 						return err
 					}
 					return fmt.Errorf("error in pulling container image - %s", containerStatus.State.Waiting.Reason)
-				} else {
-					if err := r.updateStatus(workspace, workspacePhase, "PodPending", false); err != nil {
-						return err
-					}
-					break
 				}
+
+				if err := r.updateStatus(workspace, workspacePhase, "PodPending", false); err != nil {
+					return err
+				}
+				break
 			}
 		case corev1.PodSucceeded:
 			if err := r.updateStatus(workspace, workspacePhase, "PodSucceeded", false); err != nil {
